@@ -1,0 +1,62 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.33.0.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: 43d5172893dca8da583f5303c81ab99b727ae01900e0d2029f7c673e60fdf408
+
+name:           haskell-code-obfuscator
+version:        0.1.0.0
+description:    Please see the README on GitHub at <https://github.com/githubuser/haskell-code-obfuscator#readme>
+homepage:       https://github.com/githubuser/haskell-code-obfuscator#readme
+bug-reports:    https://github.com/githubuser/haskell-code-obfuscator/issues
+author:         Author name here
+maintainer:     example@example.com
+copyright:      2020 Author name here
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+    ChangeLog.md
+
+source-repository head
+  type: git
+  location: https://github.com/githubuser/haskell-code-obfuscator
+
+library
+  exposed-modules:
+      Lib
+  other-modules:
+      Paths_haskell_code_obfuscator
+  hs-source-dirs:
+      src
+  build-depends:
+      base >=4.7 && <5
+  default-language: Haskell2010
+
+executable haskell-code-obfuscator-exe
+  main-is: Main.hs
+  other-modules:
+      Paths_haskell_code_obfuscator
+  hs-source-dirs:
+      app
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+    , haskell-code-obfuscator
+  default-language: Haskell2010
+
+test-suite haskell-code-obfuscator-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Paths_haskell_code_obfuscator
+  hs-source-dirs:
+      test
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+    , haskell-code-obfuscator
+  default-language: Haskell2010
