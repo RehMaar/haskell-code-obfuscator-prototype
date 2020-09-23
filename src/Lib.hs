@@ -64,19 +64,6 @@ putList :: Show a => [a] -> IO ()
 putList = putStrLn . intercalate "\n" . map show
 
 
-changeLetIn1 :: Changer
-changeLetIn1 ans parsed = return (ans,SYB.everywhere (SYB.mkT replace) parsed)
-  where
-   replace :: GHC.HsExpr GhcPs -> GHC.HsExpr GhcPs
---   replace (GHC.HsLet _ (GHC.L lb localDecls) expr@(GHC.L _ _)) =
---     let (GHC.HsValBinds x (GHC.ValBinds xv bagDecls sigs)) = localDecls
---         bagDecls' = GHC.listToBag $ init $ GHC.bagToList bagDecls
---     in (GHC.HsLet noExt (GHC.L lb (GHC.HsValBinds x (GHC.ValBinds xv bagDecls' sigs))) expr)
-   replace (HsVar ext name) = HsVar ext ((\_ -> GHC.mkRdrUnqual (GHC.mkVarOcc "XXXX")) <$> name)
-   replace x = x
-
-parse = EP.parseModule
-
 -- | Collect a list exported identifiers.
 -- Result:
 --  Nothing -> no export list => export all
@@ -198,6 +185,8 @@ collectBut f p = collectBut' (f &&& p)
 
 collectBut' f = SYB.everythingBut (++) (([], False) `SYB.mkQ` f)
 
+toLoc a = Loc (getLoc a) (unLoc a)
+
 collectTopLevelBindings :: HsModule GhcPs -> [TopLevelDef]
 collectTopLevelBindings =
   fmap toTopLevelDef . collectBut' f
@@ -214,38 +203,29 @@ collectTopLevelBindings =
     f (FunBind _ name matches _ _) = ([(name, matches)], True)
     f _ = ([], False)
 
-toLoc a = Loc (getLoc a) (unLoc a)
+    collectArguments' :: Match GhcPs (LHsExpr GhcPs) -> [Located RdrName]
+    collectArguments' (Match _ _ pat _) = collect arg pat
+      where
+        arg :: Pat GhcPs -> [Located RdrName]
+        arg (VarPat _ name) = [name]
+        arg _ = []
 
-collectArguments' :: Match GhcPs (LHsExpr GhcPs) -> [Located RdrName]
-collectArguments' (Match _ _ pat _) = collect arg pat
-  where
-    arg :: Pat GhcPs -> [Located RdrName]
-    arg (VarPat _ name) = [name]
-    arg _ = []
+    collectArguments :: MatchGroup GhcPs (LHsExpr GhcPs) -> [[Located RdrName]]
+    collectArguments =  fmap (collectArguments' . unLoc) . unLoc . mg_alts
 
-collectArguments :: MatchGroup GhcPs (LHsExpr GhcPs) -> [[Located RdrName]]
-collectArguments =  fmap (collectArguments' . unLoc) . unLoc . mg_alts
+    collectInnerDefs :: MatchGroup GhcPs (LHsExpr GhcPs) -> [Located RdrName]
+    collectInnerDefs = collect innerDefs
+      where
+        innerDefs :: HsBind GhcPs -> [Located RdrName]
+        innerDefs (FunBind _ name _ _ _) = [name]
+        innerDefs _ = []
 
-collectInnerDefs :: MatchGroup GhcPs (LHsExpr GhcPs) -> [Located RdrName]
-collectInnerDefs = collect innerDefs
-  where
-    innerDefs :: HsBind GhcPs -> [Located RdrName]
-    innerDefs (FunBind _ name _ _ _) = [name]
-    innerDefs _ = []
-
-collectInnerVars :: MatchGroup GhcPs (LHsExpr GhcPs) -> [Located RdrName]
-collectInnerVars = collect var
-  where
-    var :: HsExpr GhcPs -> [Located RdrName]
-    var (HsVar _ var) = [var]
-    var _ = []
-
-collectTest' :: HsModule GhcPs -> [Located RdrName]
-collectTest' = SYB.everythingWithContext [] (++) (mkQ (\s -> ([], s)) f)
-  where
-    f :: HsBind GhcPs -> [Located RdrName] -> ([Located RdrName], [Located RdrName])
-    f (FunBind _ name _ _ _) ctx = ([name], name : ctx)
-    f _ ctx = ([], ctx)
+    collectInnerVars :: MatchGroup GhcPs (LHsExpr GhcPs) -> [Located RdrName]
+    collectInnerVars = collect var
+      where
+        var :: HsExpr GhcPs -> [Located RdrName]
+        var (HsVar _ var) = [var]
+        var _ = []
 
 collectTest :: HsModule GhcPs -> [(Located RdrName, [Located RdrName], [Located RdrName])]
 collectTest = collect bind
@@ -271,7 +251,7 @@ collectTest = collect bind
 getModuleName :: HsModule GhcPs -> Maybe String
 getModuleName = fmap (moduleNameString . unLoc) . hsmodName
 
-example path mod = defaultErrorHandler defaultFatalMessager defaultFlushOut $
+getRenamedSource path mod = defaultErrorHandler defaultFatalMessager defaultFlushOut $
   do
     runGhc (Just libdir) $ do
       dflags <- getSessionDynFlags
@@ -286,43 +266,8 @@ example path mod = defaultErrorHandler defaultFatalMessager defaultFlushOut $
       -- return env
       return $ tm_renamed_source t
 
--- Get imported symbols
--- fmap (fmap (fmap rdrName2String)) $ fmap (fmap greRdrNames) $ occEnvElts $ tcg_rdr_env env
-
-{-
-testM = do
-  let path = "resources/t1.hs"
-  Just rsrc <- example path "T1"
-  Right (ans, src) <- EP.parseModule path
-  let (group, _, _, _) = rsrc
-  --let rns = namesToVars $ collectLocatedRenamedNames group
-  --let pns = rdrnameToVar $ collectVariables $ unLoc src
-  --let fbns = collectFunBindNames $ unLoc src
-  --let pns = fmap rdrnameToDef fbns
-  --let frns = (\nm -> fmap rdrnameToDef $ collectFunRhsNames nm $ unLoc src) <$> fbns
-  --putStrLn "Definitions"
-  --putStrLn $ intercalate "\n" $ show <$> pns
-  --putStrLn "============"
-  --putStrLn "FunRhs"
-  --putStrLn $ intercalate "\n" $ show <$> frns
-  --putStrLn "============"
-  --putStrLn $ intercalate "\n" $ show <$> rns
-
-  let rns = namesToVars $ collectLocatedRenamedNames group
-  let rns' = filter (isNothing . varqual . lcelem) rns
-  let names = generateObfuscatedNames $ fmap (varname . lcelem) rns'
-  putStrLn $ intercalate "\n" $ show <$> rns'
-  putStrLn $ show names
-  let renamings = zip rns' names
-  (ans, src) <- changeVar ans src renamings
-  (ans, src) <- changeBind ans src renamings
-  (ans, src) <- changeMatch ans src renamings
-  putStrLn $ exactPrint src ans
--}
-
 change changer ans parsed = return (ans,SYB.everywhere (SYB.mkT changer) parsed)
 
--- change1 :: Changer
 changeVar renamings = change replaceVar
   where
     replaceVar :: GHC.HsExpr GhcPs -> GHC.HsExpr GhcPs
@@ -330,33 +275,6 @@ changeVar renamings = change replaceVar
       | Just newName <- lookupRenaming renamings name
       = HsVar ext (newRdrName newName <$> name)
     replaceVar x = x
-
-changeBind renamings = change replace
-  where
-   replace :: GHC.HsBind GhcPs -> GHC.HsBind GhcPs
-   replace (FunBind a name b c d)
-     | Just newName <- lookupRenaming renamings name
-     = FunBind a (newRdrName newName <$> name) b c d
-   replace x = x
-
-changeMatch renamings = change replace
-  where
-   replace (FunRhs name a b)
-     | Just newName <- lookupRenaming renamings name
-     = FunRhs (newRdrName newName <$> name) a b
-   replace x = x
-
-changeFunction renamings ans src = do
-   (ans, src) <- changeBind renamings ans src
-   changeMatch renamings ans src
-
-changePat renamings = change replace
-  where
-    replace :: GHC.Pat GhcPs -> GHC.Pat GhcPs
-    replace (VarPat a name)
-      | Just newName <- lookupRenaming renamings name
-      = VarPat a (newRdrName newName <$> name)
-    replace x = x
 
 lookupRenaming [] _ = Nothing
 lookupRenaming ((oldname, newname):rn) name
@@ -372,50 +290,11 @@ newRdrName _ _ = error "newRdrName: Exact ctr. How is it used?"
 
 filterVarsWithSpan span = filter ((flip elem) span . lcloc)
 
-test path = do
-  Right (ans, src) <- EP.parseModule path
-  let mod = unLoc src
-  let modName = fromMaybe "Main" $ getModuleName mod
-  let exported = collectExportedSym mod
-
-  Just rsrc <- example path modName
-  let (group, _, _, _) = rsrc
-  let p1 = isNothing . varqual . lcelem
-  let p2 = (== Just modName) . varqual . lcelem
-
-  let renamedVars = namesToVars $ collectLocatedRenamedNames group
-  let varSpans = fmap lcloc $ filter (\v -> p2 v || p1 v) renamedVars
-
-  let (vars, defs) = collectAllSymbols mod
-  let localVars = filterVarsWithSpan varSpans vars
-
-  let varNames = fmap (varname . lcelem) localVars
-  let defNames = fmap (defname . lcelem) defs
-  let names = unique $ varNames <> defNames
-  let renaming = zip names $ generateObfuscatedNames names
-
---  putStrLn "\nVars\n"
---  putList localVars
---  putStrLn "\nDefs\n"
---  putList defs
-
-  (ans, src) <- changeVar renaming ans src
-  (ans, src) <- changeBind renaming ans src
-  (ans, src) <- changeMatch renaming ans src
-  (ans, src) <- changePat renaming ans src
-
-  putStrLn $ exactPrint src ans
-
-test1 = test "resources/t1.hs"
-test2 = test "resources/t2.hs"
-test3 = test "resources/t3.hs"
-
-
 testC path = do
   Right (ans, src) <- EP.parseModule path
   let mod = unLoc src
   let modName = fromMaybe "Main" $ getModuleName mod
-  Just rsrc <- example path modName
+  Just rsrc <- getRenamedSource path modName
   let (group, _, _, _) = rsrc
   let renamedVars = namesToVars $ collectLocatedRenamedNames group
   let exported = collectExportedSym mod
@@ -462,7 +341,10 @@ rename modname tldefs renamings exported ans mod = do
 
    changerVar :: GHC.HsExpr GhcPs -> GHC.HsExpr GhcPs
    changerVar (HsVar ext name)
-     | Just newName <- lookupRenaming renamings name
+     | Loc loc (Var name' qual') <- rdrnameToVar name
+     , Just (Loc _ (Var _ qual)) <- lookupVar (concatMap tldefvars tldefs) (Loc loc name')
+     , (fromMaybe "" qual == modname && not (name' `elem` exported) || isNothing qual)
+     , Just newName <- lookupRenaming renamings name
      = HsVar ext (newRdrName newName <$> name)
    changerVar x = x
 
@@ -478,7 +360,9 @@ rename modname tldefs renamings exported ans mod = do
      = lookup name' renamings
      | otherwise = Nothing
 
-
+lookupVar :: [Loc Var] -> Loc String -> Maybe (Loc Var)
+lookupVar = lookupGen (\var name -> (lcloc name == lcloc var) &&
+                                    ((varname $ lcelem var) == lcelem name))id
 lookupDef = lookupGen (\def name -> name == tldefname def) id
 
 allLocalNames (TLDef _ args defs vars) =
@@ -496,15 +380,15 @@ addQualifications :: [Loc Var] -> TopLevelDef -> TopLevelDef
 addQualifications vars (TLDef n a d vs) = TLDef n a d (update vars <$> vs)
   where
     update vars v@(Loc loc (Var name _))
-      | Just q <- lookupVarByName vars v
+      | Just q <- findQual vars v
       = Loc loc (Var name q)
       | otherwise
       = v
 
-lookupVarByName [] _ = Nothing
-lookupVarByName (Loc l (Var n q):vs) v@(Loc loc (Var name _))
-  | l == loc, n == name = Just q
-  | otherwise = lookupVarByName vs v
+    findQual [] _ = Nothing
+    findQual (Loc l (Var n q):vs) v@(Loc loc (Var name _))
+      | l == loc, n == name = Just q
+      | otherwise = findQual vs v
 
 lookupGen _ _ [] _ = Nothing
 lookupGen f p (x:xs) y
