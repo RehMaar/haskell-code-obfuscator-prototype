@@ -21,10 +21,12 @@ description:         Please see the README on GitHub at <https://github.com/gith
 
 dependencies:
 - base >= 4.7 && < 5
+- containers >= 0.6
 - ghc >= 8.8.4
 - ghc-exactprint
 - syb  >= 0.5
 - ghc-paths
+- ghc-source-gen
 
 library:
   source-dirs: src
