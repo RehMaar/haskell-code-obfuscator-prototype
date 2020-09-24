@@ -343,7 +343,7 @@ renameImportedSymbols octx ans src = do
   where
     importedSymbols = filter ((\q -> isJust q && fromJust q /= ocModName octx) . varqual . lcelem) $ ocVars octx
     importedRenamings = zip importedSymbols $
-                            generateObfuscatedNames' {-(length $ ocRenamings octx)-} 1 $ fmap (varname . lcelem) importedSymbols
+                            generateObfuscatedNames' (length $ ocRenamings octx) $ fmap (varname . lcelem) importedSymbols
 
     f (Loc _ var) newName = createDecl newName $ varname var
 
