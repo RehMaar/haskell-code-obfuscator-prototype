@@ -1,7 +1,8 @@
 module OneLinePrinter
-  -- (oneline)
+  (oneline, showOneLine)
   where
 
+import qualified Util as GHC.Util
 import GHC
 import ConLike
 import Bag (bagToList)
@@ -17,7 +18,7 @@ import qualified Language.Haskell.GHC.ExactPrint as EP
 
 import Outputable as O
 
-import qualified Obfuscate as Obf
+import Utils
 
 separate :: SDoc -> [SDoc] -> [SDoc]
 separate _ [] = []
@@ -98,7 +99,9 @@ onelineDecls = hsep . separate semi  . map (ol_decl . unLoc)
 
     ol_stmt :: Stmt GhcPs (LHsExpr GhcPs) -> SDoc
     ol_stmt (BodyStmt _ expr _ _) = ol_expr $ unLoc expr
-    ol_stmt _ = text "<stmt>"
+    ol_stmt (LetStmt _ lb) = text "let" <+> ol_lbinds (unLoc lb)
+    ol_stmt (BindStmt _ pat body _ _) = ol_pat (unLoc pat) <+> larrow <+> ol_expr (unLoc body)
+    ol_stmt x = error $ "Unhandled stmt: " ++ (showSDocUnsafe $ ppr x)
 
     ol_prefix :: [LPat GhcPs] -> RdrName -> SDoc
     ol_prefix pat fn = pprPrefixOcc fn <+> ol_pats pat
@@ -144,12 +147,20 @@ onelineDecls = hsep . separate semi  . map (ol_decl . unLoc)
         text "do {"
         <+> ol_expr_do stmt_ctx (unLoc expr_stmt)
         <+> text "}"
+    ol_expr (ExplicitList _ _ es) = lbrack O.<> hsep (punctuate comma (map (ol_expr . unLoc) es)) O.<> rbrack
+    -- ol_expr (ExplicitTuple _ arg box) = error "ExplicitTuple: TODO"
     ol_expr e = pprExpr e
 
     ol_expr_do :: HsStmtContext Name -> [LStmt GhcPs (LHsExpr GhcPs)] -> SDoc
     ol_expr_do DoExpr stmts = hsep (punctuate semi (map (ol_stmt . unLoc) stmts))
+    ol_expr_do ListComp stmts = ol_expr_list_comp stmts
     ol_expr_do x _ = error $ "HsDo: " ++ (showSDocUnsafe $ ppr x)
 
+    ol_expr_list_comp stmts
+      | Just (quals, L _ (LastStmt _ body _ _)) <- GHC.Util.snocView stmts
+      = lbrack <+> ol_expr (unLoc body) <+> ol_guards quals <+> rbrack
+      | otherwise
+      = error "ListComp: badly formed"
 
     -- Copied from GHC.Hs.Expr (TODO: how to import it?)
     ppr_infix_expr :: HsExpr GhcPs -> Maybe SDoc
@@ -161,19 +172,20 @@ onelineDecls = hsep . separate semi  . map (ol_decl . unLoc)
     ppr_infix_expr _                    = Nothing
 
 
-
 oneline :: HsModule GhcPs -> SDoc
 oneline (HsModule mname exports imports decls _ _) =
     onelineHead   mname exports
     <+> onelineImport imports
     <+> onelineDecls  decls
 
+showOneLine dynFlags mod = showSDocOneLine dynFlags (oneline mod)
+
 ghc path mod = defaultErrorHandler defaultFatalMessager defaultFlushOut $
   runGhc (Just libdir) $ getSessionDynFlags
 
 testO path = do
   Right (ans, src) <- EP.parseModule path
-  let modname = Obf.getModuleName $ unLoc src
+  let modname = getModuleName $ unLoc src
   dflags <- ghc path modname
   let code = showSDocOneLine dflags $ oneline $ unLoc src
   putStrLn code
