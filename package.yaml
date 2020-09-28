@@ -27,6 +27,7 @@ dependencies:
 - syb  >= 0.5
 - ghc-paths
 - ghc-source-gen
+- hie-bios
 
 library:
   source-dirs: src

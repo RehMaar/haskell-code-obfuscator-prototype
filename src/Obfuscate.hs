@@ -38,6 +38,8 @@ import qualified Outputable as Out
 import OneLinePrinter
 import Utils
 
+import HIE.Bios as Bios
+
 data Var = Var { varname :: String, varqual :: Maybe String }
   deriving Eq
 
@@ -463,6 +465,7 @@ renameImportedSymbols octx ans src = do
 
 getRenamedSource path mod = defaultErrorHandler defaultFatalMessager defaultFlushOut $
   do
+    -- libdir <- PS.getLibDir
     runGhc (Just libdir) $ do
       dflags <- getSessionDynFlags
       setSessionDynFlags dflags
@@ -473,6 +476,20 @@ getRenamedSource path mod = defaultErrorHandler defaultFatalMessager defaultFlus
       p <- GHC.parseModule modSum
       t <- typecheckModule p
       return $ (tm_renamed_source t, dflags)
+
+getSource path =
+  defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
+      -- TODO: construct cradle in memory
+      cradle <- Bios.loadCradle "./hie.yaml"
+      copt <- Bios.getCompilerOptions path cradle
+      case copt of
+        CradleSuccess opt ->
+          runGhc (Just libdir) $ do
+              targets <- Bios.initSession opt
+              setTargets targets
+              load LoadAllTargets
+              (t, _) <- loadFile (path, path)
+              return t
 
 obfuscate path = do
   Right (ans, src) <- EP.parseModule path
@@ -511,3 +528,8 @@ obfuscate path = do
   --let code = exactPrint src ans
   putStrLn code
 --  writeFile (path ++ ".obf") code
+
+
+-- What I want
+-- stackInterface :: PathToStackProject -> DynFlags
+--
