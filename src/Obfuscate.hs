@@ -1,13 +1,13 @@
 {-# LANGUAGE TypeFamilies, FlexibleInstances, DeriveFunctor #-}
 
-module Lib where
+module Obfuscate where
     
 import Language.Haskell.GHC.ExactPrint as EP
 import Language.Haskell.GHC.ExactPrint.Parsers as EP
 import Language.Haskell.GHC.ExactPrint.Utils as EP
 
 import qualified GHC.SourceGen as SG
-
+import qualified GHC.SourceGen.Binds as SG
 
 import Data.Generics as SYB
 
@@ -18,6 +18,9 @@ import qualified SrcLoc as GHC
 import qualified Bag as GHC
 import qualified Name as GHC
 import qualified Module as GHC
+import qualified FastString as GHC
+
+import TcEvidence (HsWrapper(WpHole))
 
 import qualified Data.Map as Map
 import Data.Maybe
@@ -32,7 +35,8 @@ import DynFlags
 
 import qualified Outputable as Out
 
-import Debug.Trace
+import OneLinePrinter
+import Utils
 
 data Var = Var { varname :: String, varqual :: Maybe String }
   deriving Eq
@@ -76,13 +80,6 @@ data ObfContext = OC {
     , ocExported :: [String]
   }
 
-putList :: Show a => [a] -> IO ()
-putList = putStrLn . intercalate "\n" . map show
-
-unique :: Ord a => [a] -> [a]
-unique = fmap head . group . sort
-
-
 -- | Collect a list exported identifiers.
 -- Result:
 --  Nothing -> no export list => export all
@@ -103,7 +100,7 @@ generateObfuscatedNames' n =
     zip [n..]
   where
     -- gen n _ = concatMap show $ take n [n..]
-    gen n _ = take n ['a', 'a' ..]
+    gen n _ = show n -- take n ['a', 'a' ..]
 
 ------------------------------------------------------------------
 ------------------------------------------------------------------
@@ -209,9 +206,6 @@ collectTopLevelBindings =
         var :: HsExpr GhcPs -> [Located RdrName]
         var (HsVar _ var) = [var]
         var _ = []
-
-getModuleName :: HsModule GhcPs -> Maybe String
-getModuleName = fmap (moduleNameString . unLoc) . hsmodName
 
 change changer ans parsed = return (ans,SYB.everywhere (SYB.mkT changer) parsed)
 changeBut stopper changer ans parsed = return (ans,SYB.everywhereBut (SYB.mkQ False stopper) (SYB.mkT changer) parsed)
@@ -323,16 +317,120 @@ rename octx ans mod = do
      = lookup name' (ocRenamings octx)
      | otherwise = Nothing
 
--- transform
+{-
+  TODO:
+     By some reason, expresion `f $ h $ x`
+     is parsed into
+       op (op f $ h) ($) x
+     not into
+       op f $ (op h $ x)
+   >>> Infix operators are parsed as if they were all left-associative. The renamer uses the fixity declarations to re-associate the syntax tree.
+-}
 transformOpToApp :: HsExpr GhcPs -> HsExpr GhcPs
-transformOpToApp (OpApp _ left op right) = HsApp noExt (noLoc $ HsPar noExt $ noLoc (HsApp noExt op left)) right
+transformOpToApp (OpApp _ left op right)
+  = HsApp noExt (noLoc $ HsPar noExt $ noLoc (HsApp noExt op left))
+                (noLoc $ HsPar noExt $ right)
 transformOpToApp x = x
+
+{-
+
+Example 1:
+
+ do { r1 <- a2; r2 <- a3; ..; e }
+  ==>
+ (a1 >>= \r1 -> a3 >>= \r2 -> ... ; \rn -> e)
+
+Example 2:
+  do { r1 <- a1; let l1 = s1; r2 <- a2; ... e }
+   ==>
+  a1 >>= \r1 -> (\l1 -> a2 >>= \r2 -> (... \rn -> e)) s1
+
+OpApp a1 (>>=) (\r -> ...)
+
+HsDo _ _ (ExprStmt _)
+
+HsLam _ (MatchGroup _ (HsExpr _))
+-}
+transformDoToLam :: HsExpr GhcPs -> HsExpr GhcPs
+transformDoToLam (HsDo _ _ (L _ es)) = foldToExpr es
+  where
+    foldToExpr :: [ExprLStmt GhcPs] -> HsExpr GhcPs
+    foldToExpr [e] = lastStmt (unLoc e)
+    foldToExpr (e:es) = stmtToExpr (unLoc e) (foldToExpr es)
+
+    -- body >>= \pat -> k
+    bind body pat k = SG.op body (fromString ">>=") (SG.lambda pat k)
+
+    stmtToExpr :: ExprStmt GhcPs -> HsExpr GhcPs -> HsExpr GhcPs
+    -- pat <- body ==> body >>= \pat -> {}
+    stmtToExpr (BindStmt _ pat body _ _) k = bind (unLoc body) [pat] k
+    -- let pat = body ==> (\pat -> {} ) body
+    -- let fun => (\funname -> {}) (let fun in funname)
+    stmtToExpr (LetStmt _ (L _ lbs)) k = foldLets k lbs
+    -- body => body >>= \_ -> {}
+    stmtToExpr (BodyStmt _ body _ _) k = bind (unLoc body) [SG.wildP] k
+
+    stmtToExpr (LastStmt _ body _ _) k = error "What case?"
+
+    lastStmt (LastStmt _ body _ _) = unLoc body
+    lastStmt (BodyStmt _ body _ _) = unLoc body
+
+    foldLets k (HsValBinds _ (ValBinds _ binds _)) = foldLets' k (map unLoc $ GHC.bagToList binds)
+
+    foldLets' k [] = k
+    foldLets' k (b:bs) = foldLets' (bindToLamOrLet k b) bs
+
+    -- let funname = fun in funanme
+    bindToLamOrLet :: HsExpr GhcPs -> HsBind GhcPs -> HsExpr GhcPs
+    bindToLamOrLet k fb@(FunBind {fun_id = L _ funname})
+     = let lbind = noLoc $ HsValBinds noExt $ ValBinds noExt (GHC.listToBag [noLoc fb]) []
+           pat = VarPat noExt (noLoc funname)
+       in (SG.lambda [pat] k) SG.@@ (HsLet noExt lbind (noLoc $ HsVar noExt $ noLoc funname))
+    bindToLamOrLet k (PatBind {pat_lhs = pat}) = error "Pat"
+
+transformDoToLam x = x
+
+transformStringAndChars :: String -> Anns -> Located (HsModule GhcPs) -> IO (Anns, Located (HsModule GhcPs))
+transformStringAndChars freeName ans src = do
+    (ans, src) <- change (transformString' freeName) ans src
+    (ans, src) <- change transformChar ans src
+    let src' = addDeclWithSig decl sig <$> src
+    return (ans, src')
+  where
+    decl = createDecl freeName "toEnum"
+    sig = SG.typeSig (fromString freeName) (createVar "Int" SG.--> createVar "Char")
+
+    -- 'c' -> (toChar n)
+    transformChar :: HsExpr GhcPs -> HsExpr GhcPs
+    transformChar (HsLit _ (HsChar _ chr)) =
+      createVar freeName SG.@@ SG.int (toInteger $ fromEnum chr)
+    transformChar x = x
+
+    -- "str" -> [int1, int2, int3]
+    --  -> (map toChar [int1, int2, int3])
+    transformString' :: String -> HsExpr GhcPs -> HsExpr GhcPs
+    transformString' freeName (HsLit _ (HsString _ str)) =
+      let lst = stringToList (GHC.unpackFS str)
+          lst' = listToHsList lst
+      in SG.par $ (SG.var (fromString "map") SG.@@ SG.var (fromString freeName)) SG.@@ lst'
+    transformString' _ x = x
+
+    listToHsList :: [Int] -> HsExpr GhcPs
+    listToHsList = SG.list . map (SG.int . toInteger)
+
+    stringToList "" = []
+    stringToList (x:xs) = fromEnum x : stringToList xs
 
 createDecl :: String -> String -> HsDecl GhcPs
 createDecl name call = SG.funBind (fromString name) $ SG.match [] $ SG.var $ fromString call
 
+createVar name = SG.var (fromString name)
+
 addDecl :: HsDecl GhcPs -> HsModule GhcPs  -> HsModule GhcPs
 addDecl d (HsModule n e i ds x y) = (HsModule n e i (ds ++ [noLoc d]) x y)
+
+addDeclWithSig :: HsDecl GhcPs -> HsDecl GhcPs -> HsModule GhcPs  -> HsModule GhcPs
+addDeclWithSig d s (HsModule n e i ds x y) = (HsModule n e i (ds ++ [noLoc s, noLoc d]) x y)
 
 renameImportedSymbols :: ObfContext -> Anns -> Located (HsModule GhcPs) -> IO (Anns, Located (HsModule GhcPs))
 renameImportedSymbols octx ans src = do
@@ -343,7 +441,7 @@ renameImportedSymbols octx ans src = do
   where
     importedSymbols = filter ((\q -> isJust q && fromJust q /= ocModName octx) . varqual . lcelem) $ ocVars octx
     importedRenamings = zip importedSymbols $
-                            generateObfuscatedNames' (length $ ocRenamings octx) $ fmap (varname . lcelem) importedSymbols
+                            generateObfuscatedNames' (succ $ length $ ocRenamings octx) $ fmap (varname . lcelem) importedSymbols
 
     f (Loc _ var) newName = createDecl newName $ varname var
 
@@ -399,14 +497,17 @@ obfuscate path = do
 --  putList tldefs
 --  putStrLn $ show $ renamings
 
-  (ans, src) <- rename octx ans src
-  (ans, src) <- change transformOpToApp ans src
-  (ans, src) <- renameImportedSymbols octx ans src
+  -- (ans, src) <- rename octx ans src
+  (ans, src) <- transformStringAndChars "toChar" ans src
+  --(ans, src) <- change transformDoToLam ans src
+  -- (ans, src) <- change transformOpToApp ans src
+  --(ans, src) <- renameImportedSymbols octx ans src
   -- putList $ Map.toList ans
-  --let code = Out.showSDocUnsafe $ Out.ppr src
-  let code = Out.showSDoc dflags $ Out.ppr src
-  -- let code = Out.showSDocOneLine dflags $ Out.ppr src
+  let code = Out.showSDocUnsafe $ Out.ppr src
+  -- let code = showOneLine dflags (unLoc src)
+  --let code = Out.showSDoc dflags $ Out.ppr src
+  --let code = Out.showSDocOneLine dflags $ Out.ppr src
   --putStrLn "========"
-  -- let code = exactPrint src ans
+  --let code = exactPrint src ans
   putStrLn code
-  -- writeFile (path ++ ".obf") code
+--  writeFile (path ++ ".obf") code
