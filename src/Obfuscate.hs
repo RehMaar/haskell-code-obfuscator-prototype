@@ -5,6 +5,7 @@ module Obfuscate where
 import Language.Haskell.GHC.ExactPrint as EP
 import Language.Haskell.GHC.ExactPrint.Parsers as EP
 import Language.Haskell.GHC.ExactPrint.Utils as EP
+import Language.Haskell.GHC.ExactPrint.Delta as EP
 
 import qualified GHC.SourceGen as SG
 import qualified GHC.SourceGen.Binds as SG
@@ -463,7 +464,8 @@ renameImportedSymbols octx ans src = do
       = Just newName
       | otherwise = lookupIR n irs
 
-getRenamedSource path mod = defaultErrorHandler defaultFatalMessager defaultFlushOut $
+getSource' :: String -> String -> IO (TypecheckedModule, DynFlags)
+getSource' path mod = defaultErrorHandler defaultFatalMessager defaultFlushOut $
   do
     -- libdir <- PS.getLibDir
     runGhc (Just libdir) $ do
@@ -475,27 +477,51 @@ getRenamedSource path mod = defaultErrorHandler defaultFatalMessager defaultFlus
       modSum <- getModSummary $ mkModuleName mod
       p <- GHC.parseModule modSum
       t <- typecheckModule p
-      return $ (tm_renamed_source t, dflags)
+      return (t, dflags)
 
+
+getSource :: String -> IO (Maybe TypecheckedModule, DynFlags)
 getSource path =
   defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
       -- TODO: construct cradle in memory
       cradle <- Bios.loadCradle "./hie.yaml"
       copt <- Bios.getCompilerOptions path cradle
       case copt of
+        CradleNone -> fail "CradleNone: nani?"
+        CradleFail (CradleError _ msgs) ->
+          fail $ show msgs
         CradleSuccess opt ->
           runGhc (Just libdir) $ do
               targets <- Bios.initSession opt
               setTargets targets
+              dflags <- getSessionDynFlags
+              let dflags' = dflags `gopt_set` Opt_KeepRawTokenStream
+              setSessionDynFlags dflags'
               load LoadAllTargets
               (t, _) <- loadFile (path, path)
-              return t
+              dflags <- getSessionDynFlags
+              return (t, dflags)
+
+handleModule path = do
+  (Just tm, dflags) <- getSource path
+  let pmod = tm_parsed_module tm
+  let src = pm_parsed_source pmod
+  let apianns = pm_annotations pmod
+  let Right (ans, _) = postParseTransform (Right (apianns, [], dflags, src)) normalLayout
+  let rsrc = tm_renamed_source tm
+  return (ans, src, rsrc, dflags)
+
+handleModule' path = do
+  Right (ans, src) <- EP.parseModule path
+  let mod = fromMaybe "Main" $ getModuleName $ unLoc src
+  (tm, dflags) <- getSource' path mod
+  return (ans, src, tm_renamed_source tm, dflags)
 
 obfuscate path = do
-  Right (ans, src) <- EP.parseModule path
+  (ans, src, Just rsrc, dflags) <- handleModule' path
   let mod = unLoc src
   let modName = fromMaybe "Main" $ getModuleName mod
-  (Just rsrc, dflags) <- getRenamedSource path modName
+
   let (group, _, _, _) = rsrc
   let renamedVars = namesToVars $ collectLocatedRenamedNames group
   let exported = fromMaybe [] $ collectExportedSym mod
@@ -515,10 +541,10 @@ obfuscate path = do
 --  putStrLn $ show $ renamings
 
   -- (ans, src) <- rename octx ans src
-  (ans, src) <- transformStringAndChars "toChar" ans src
-  --(ans, src) <- change transformDoToLam ans src
+  -- (ans, src) <- transformStringAndChars "toChar" ans src
+  -- (ans, src) <- change transformDoToLam ans src
   -- (ans, src) <- change transformOpToApp ans src
-  --(ans, src) <- renameImportedSymbols octx ans src
+  -- (ans, src) <- renameImportedSymbols octx ans src
   -- putList $ Map.toList ans
   let code = Out.showSDocUnsafe $ Out.ppr src
   -- let code = showOneLine dflags (unLoc src)
@@ -528,8 +554,3 @@ obfuscate path = do
   --let code = exactPrint src ans
   putStrLn code
 --  writeFile (path ++ ".obf") code
-
-
--- What I want
--- stackInterface :: PathToStackProject -> DynFlags
---
