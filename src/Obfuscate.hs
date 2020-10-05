@@ -20,6 +20,12 @@ import qualified Bag as GHC
 import qualified Name as GHC
 import qualified Module as GHC
 import qualified FastString as GHC
+import qualified BasicTypes as GHC
+import qualified HscTypes as GHC
+import qualified TcRnTypes as GHC
+import qualified UniqDFM as GHC
+import GHC.Paths (libdir)
+import DynFlags
 
 import TcEvidence (HsWrapper(WpHole))
 
@@ -30,16 +36,13 @@ import Data.String
 
 import Control.Arrow ((&&&))
 
-import GHC.Paths (libdir)
-
-import DynFlags
-
 import qualified Outputable as Out
 
 import OneLinePrinter
 import Utils
+import Source
 
-import HIE.Bios as Bios
+import Debug.Trace
 
 data Var = Var { varname :: String, varqual :: Maybe String }
   deriving Eq
@@ -89,7 +92,7 @@ data ObfContext = OC {
 --  Just [] -> export nothing
 --  Just [..] -> export a list of names
 collectExportedSym :: HsModule GhcPs -> Maybe [String]
-collectExportedSym mod = catMaybes <$> (\a -> (handleExports . unLoc) <$> unLoc a) <$> hsmodExports mod
+collectExportedSym mod = catMaybes <$> (fmap (handleExports . unLoc) . unLoc) <$> hsmodExports mod
   where
     handleExports :: IE GhcPs -> Maybe String
     handleExports (IEVar _ name) = Just $ rdrName2String $ lieWrappedName name
@@ -111,7 +114,6 @@ generateObfuscatedNames' n =
 ------------------------------------------------------------------
 ------------------------------------------------------------------
 ------------------------------------------------------------------
-
 namesToVars :: [Located Name] -> [Loc Var]
 namesToVars = map nameToVar . filter (GHC.isGoodSrcSpan . GHC.getLoc)
 
@@ -119,12 +121,6 @@ nameToVar :: Located Name -> Loc Var
 nameToVar name = let (nm, qual) = destructName $ unLoc name
                      symb = Var { varqual = qual, varname = nm }
                  in Loc (getLoc name) symb
-
-destructName :: Name -> (String, Maybe String)
-destructName name =
-  let qual = (GHC.moduleNameString . GHC.moduleName) <$> GHC.nameModule_maybe (unLoc name)
-      nm = GHC.occNameString $ GHC.nameOccName $ unLoc name
-  in (nm, qual)
 
 rdrnamesToVars :: [Located RdrName] -> [Loc Var]
 rdrnamesToVars = map rdrnameToVar . filter (GHC.isGoodSrcSpan . GHC.getLoc)
@@ -156,19 +152,6 @@ rdrnameToDef name =
 ------------------------------------------------------------------
 ------------------------------------------------------------------
 ------------------------------------------------------------------
-
-collect f = SYB.everything (++) ([] `SYB.mkQ` f)
-
-collectBut f p = collectBut' (f &&& p)
-
-collectBut' f = SYB.everythingBut (++) (([], False) `SYB.mkQ` f)
-
-collectLocatedRenamedNames :: HsGroup GhcRn -> [Located Name]
-collectLocatedRenamedNames = collect t1
-  where
-    t1 :: HsExpr GhcRn -> [Located Name]
-    t1 (HsVar ext var) = [var]
-    t1 x = []
 
 collectTopLevelBindings :: HsModule GhcPs -> [TopLevelDef]
 collectTopLevelBindings =
@@ -212,6 +195,8 @@ collectTopLevelBindings =
 
 change changer ans parsed = return (ans,SYB.everywhere (SYB.mkT changer) parsed)
 changeBut stopper changer ans parsed = return (ans,SYB.everywhereBut (SYB.mkQ False stopper) (SYB.mkT changer) parsed)
+
+change' changer ans parsed = return (ans,SYB.everywhere' (SYB.mkT changer) parsed)
 
 lookupRenaming [] _ = Nothing
 lookupRenaming ((oldname, newname):rn) name
@@ -320,23 +305,31 @@ rename octx ans mod = do
      = lookup name' (ocRenamings octx)
      | otherwise = Nothing
 
-{-
-  TODO:
-     By some reason, expresion `f $ h $ x`
-     is parsed into
-       op (op f $ h) ($) x
-     not into
-       op f $ (op h $ x)
-   >>> Infix operators are parsed as if they were all left-associative. The renamer uses the fixity declarations to re-associate the syntax tree.
--}
+showOp left op right =
+  "left: {" ++ showElem left ++ "}"
+   ++ " op: {" ++ showElem op ++ "}"
+   ++ " right: {" ++ showElem right ++ "}"
+
+-- TODO: need correct locations?
 transformOpToApp :: HsExpr GhcPs -> HsExpr GhcPs
-transformOpToApp (OpApp _ left op right)
-  = HsApp noExt (noLoc $ HsPar noExt $ noLoc (HsApp noExt op left))
-                (noLoc $ HsPar noExt $ right)
+transformOpToApp e@(OpApp _ left op right)
+  = app (noLoc $ par $ noLoc $ app op $ noLoc $ par left)
+        (noLoc $ par right)
+  where
+    app = HsApp noExt
+
+    par = HsPar noExt
+
+    help' :: LHsExpr GhcPs -> LHsExpr GhcPs
+    -- help' e@(L _ (HsPar{})) = e
+    -- help' e@(L _ (HsVar{})) = e
+    -- help' e@(L _ (HsLit{})) = e
+    -- help' e@(L _ (HsOverLit{})) = e
+    help' x = L (getLoc x) $ HsPar noExt x
+
 transformOpToApp x = x
 
 {-
-
 Example 1:
 
  do { r1 <- a2; r2 <- a3; ..; e }
@@ -390,7 +383,6 @@ transformDoToLam (HsDo _ _ (L _ es)) = foldToExpr es
            pat = VarPat noExt (noLoc funname)
        in (SG.lambda [pat] k) SG.@@ (HsLet noExt lbind (noLoc $ HsVar noExt $ noLoc funname))
     bindToLamOrLet k (PatBind {pat_lhs = pat}) = error "Pat"
-
 transformDoToLam x = x
 
 transformStringAndChars :: String -> Anns -> Located (HsModule GhcPs) -> IO (Anns, Located (HsModule GhcPs))
@@ -464,67 +456,21 @@ renameImportedSymbols octx ans src = do
       = Just newName
       | otherwise = lookupIR n irs
 
-getSource' :: String -> String -> IO (TypecheckedModule, DynFlags)
-getSource' path mod = defaultErrorHandler defaultFatalMessager defaultFlushOut $
-  do
-    -- libdir <- PS.getLibDir
-    runGhc (Just libdir) $ do
-      dflags <- getSessionDynFlags
-      setSessionDynFlags dflags
-      target <- guessTarget path Nothing
-      setTargets [target]
-      load LoadAllTargets
-      modSum <- getModSummary $ mkModuleName mod
-      p <- GHC.parseModule modSum
-      t <- typecheckModule p
-      return (t, dflags)
-
-
-getSource :: String -> IO (Maybe TypecheckedModule, DynFlags)
-getSource path =
-  defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
-      -- TODO: construct cradle in memory
-      cradle <- Bios.loadCradle "./hie.yaml"
-      copt <- Bios.getCompilerOptions path cradle
-      case copt of
-        CradleNone -> fail "CradleNone: nani?"
-        CradleFail (CradleError _ msgs) ->
-          fail $ show msgs
-        CradleSuccess opt ->
-          runGhc (Just libdir) $ do
-              targets <- Bios.initSession opt
-              setTargets targets
-              dflags <- getSessionDynFlags
-              let dflags' = dflags `gopt_set` Opt_KeepRawTokenStream
-              setSessionDynFlags dflags'
-              load LoadAllTargets
-              (t, _) <- loadFile (path, path)
-              dflags <- getSessionDynFlags
-              return (t, dflags)
-
-handleModule path = do
-  (Just tm, dflags) <- getSource path
-  let pmod = tm_parsed_module tm
-  let src = pm_parsed_source pmod
-  let apianns = pm_annotations pmod
-  let Right (ans, _) = postParseTransform (Right (apianns, [], dflags, src)) normalLayout
-  let rsrc = tm_renamed_source tm
-  return (ans, src, rsrc, dflags)
-
-handleModule' path = do
-  Right (ans, src) <- EP.parseModule path
-  let mod = fromMaybe "Main" $ getModuleName $ unLoc src
-  (tm, dflags) <- getSource' path mod
-  return (ans, src, tm_renamed_source tm, dflags)
+addParens :: HsExpr GhcPs -> HsExpr GhcPs
+addParens e@(OpApp{}) = HsPar noExt (noLoc e)
+addParens e@(NegApp{}) = HsPar noExt (noLoc e)
+addParens x = x
 
 obfuscate path = do
-  (ans, src, Just rsrc, dflags) <- handleModule' path
+  (ans, src, rvs, dflags) <- handleModule' path
   let mod = unLoc src
   let modName = fromMaybe "Main" $ getModuleName mod
 
-  let (group, _, _, _) = rsrc
-  let renamedVars = namesToVars $ collectLocatedRenamedNames group
-  let exported = fromMaybe [] $ collectExportedSym mod
+  -- let Just (group, _, _, _) = rsrc
+  -- let renamedVars = namesToVars $ collectLocatedRenamedNames group
+  let renamedVars = namesToVars rvs
+
+  let exported = "main" : (fromMaybe [] $ collectExportedSym mod)
 
   let a = collectTopLevelBindings $ unLoc src
   let tldefs = addQualifications renamedVars <$> a
@@ -540,17 +486,18 @@ obfuscate path = do
 --  putList tldefs
 --  putStrLn $ show $ renamings
 
-  -- (ans, src) <- rename octx ans src
-  -- (ans, src) <- transformStringAndChars "toChar" ans src
-  -- (ans, src) <- change transformDoToLam ans src
-  -- (ans, src) <- change transformOpToApp ans src
+  (ans, src) <- change addParens ans src
+  (ans, src) <- rename octx ans src
+  (ans, src) <- transformStringAndChars "toChar" ans src
+  (ans, src) <- change transformDoToLam ans src
+  -- (_, src') <- change addParens ans src
+  -- putStrLn $ Out.showSDocUnsafe $ Out.ppr src'
+  (ans, src) <- change' transformOpToApp ans src
   -- (ans, src) <- renameImportedSymbols octx ans src
   -- putList $ Map.toList ans
-  let code = Out.showSDocUnsafe $ Out.ppr src
-  -- let code = showOneLine dflags (unLoc src)
-  --let code = Out.showSDoc dflags $ Out.ppr src
+  -- let code = Out.showSDocUnsafe $ Out.ppr src
+  let code = Out.showSDocOneLine dflags $ oneline $ unLoc src
   --let code = Out.showSDocOneLine dflags $ Out.ppr src
-  --putStrLn "========"
-  --let code = exactPrint src ans
+  putStrLn "========"
   putStrLn code
---  writeFile (path ++ ".obf") code
+  writeFile (path ++ ".obf") code
