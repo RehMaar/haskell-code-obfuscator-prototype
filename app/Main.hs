@@ -1,6 +1,23 @@
 module Main where
 
-import Lib
+import Outputable
+import SrcLoc
 
-main :: IO ()
-main = someFunc
+import Transform.Obfuscate
+import Source
+import OneLinePrinter
+
+main = putStrLn "Privet"
+
+obfuscateFileInProj = obfuscateCommon . ProjectModule
+
+
+obfuscateFile = obfuscateCommon SimpleModule
+
+obfuscateCommon mod path = do
+  si <- handleModule mod path
+  let (_, src) = obfuscate si
+  let dflags = si_dynflags si
+  -- let code = showSDocOneLine dflags $ oneline $ unLoc src
+  let code = showSDocUnsafe $ ppr src
+  putStrLn code

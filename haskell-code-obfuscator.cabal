@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: ec3347bfeb73e611e32e6133defbaf2b61a02be05b311315124374445cc8a856
+-- hash: 08c9ce4a6b4b19f8d906932fa0c95506cfd3a74aeb1b2e1d92b03199bc4ccdf4
 
 name:           haskell-code-obfuscator
 version:        0.1.0.0
@@ -27,9 +27,13 @@ source-repository head
 
 library
   exposed-modules:
-      Obfuscate
       OneLinePrinter
       Source
+      Transform.Context
+      Transform.Obfuscate
+      Transform.Query
+      Transform.Rename
+      Transform.Types
       Utils
   other-modules:
       Paths_haskell_code_obfuscator
@@ -40,6 +44,7 @@ library
     , containers >=0.6
     , directory
     , ghc >=8.8.4
+    , ghc-boot
     , ghc-exactprint
     , ghc-paths
     , ghc-source-gen
@@ -60,6 +65,7 @@ executable haskell-code-obfuscator-exe
     , containers >=0.6
     , directory
     , ghc >=8.8.4
+    , ghc-boot
     , ghc-exactprint
     , ghc-paths
     , ghc-source-gen
@@ -83,6 +89,7 @@ test-suite haskell-code-obfuscator-test
     , containers >=0.6
     , directory
     , ghc >=8.8.4
+    , ghc-boot
     , ghc-exactprint
     , ghc-paths
     , ghc-source-gen

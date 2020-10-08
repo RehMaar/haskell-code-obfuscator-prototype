@@ -23,6 +23,7 @@ dependencies:
 - base >= 4.7 && < 5
 - containers >= 0.6
 - ghc >= 8.8.4
+- ghc-boot
 - ghc-exactprint
 - syb  >= 0.5
 - ghc-paths

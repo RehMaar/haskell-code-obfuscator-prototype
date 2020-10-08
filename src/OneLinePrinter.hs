@@ -73,7 +73,7 @@ onelineDecls = hsep . separate semi  . map (ol_decl . unLoc)
     ol_fun x _ = error $ showSDocUnsafe $ ppr x
 
     ol_grhss con (GRHSs _ gs lbs) =
-      hcat (map (uncurry (\a b -> a <+> con <+> b) . ol_grhs . unLoc) gs)
+      hcat (map ((\(a, b) -> a <+> con <+> b) . ol_grhs . unLoc) gs)
       O.<> if isEmptyLocalBindsPR (unLoc lbs)
            then empty
            else text " where" <+> ol_lbinds (unLoc lbs)
@@ -101,13 +101,13 @@ onelineDecls = hsep . separate semi  . map (ol_decl . unLoc)
     ol_stmt (BodyStmt _ expr _ _) = ol_expr $ unLoc expr
     ol_stmt (LetStmt _ lb) = text "let" <+> ol_lbinds (unLoc lb)
     ol_stmt (BindStmt _ pat body _ _) = ol_pat (unLoc pat) <+> larrow <+> ol_expr (unLoc body)
-    ol_stmt x = error $ "Unhandled stmt: " ++ (showSDocUnsafe $ ppr x)
+    ol_stmt x = error $ "Unhandled stmt: " ++ showElem x
 
     ol_prefix :: [LPat GhcPs] -> RdrName -> SDoc
     ol_prefix pat fn = pprPrefixOcc fn <+> ol_pats pat
 
     ol_infix :: [LPat GhcPs] -> RdrName -> SDoc
-    ol_infix (p1:p2:[]) fn = ol_pat p1 <+> pprInfixOcc fn <+> ol_pat p2
+    ol_infix [p1, p2]   fn = ol_pat p1 <+> pprInfixOcc fn <+> ol_pat p2
     ol_infix (p1:p2:ps) fn = (lparen <+> ol_infix [p1, p2] fn <+> rparen) <+> ol_pats ps
 
     ol_pats ps = hsep (map ppr ps)
@@ -154,7 +154,7 @@ onelineDecls = hsep . separate semi  . map (ol_decl . unLoc)
     ol_expr_do :: HsStmtContext Name -> [LStmt GhcPs (LHsExpr GhcPs)] -> SDoc
     ol_expr_do DoExpr stmts = hsep (punctuate semi (map (ol_stmt . unLoc) stmts))
     ol_expr_do ListComp stmts = ol_expr_list_comp stmts
-    ol_expr_do x _ = error $ "HsDo: " ++ (showSDocUnsafe $ ppr x)
+    ol_expr_do x _ = error $ "HsDo: " ++ showSDocUnsafe (ppr x)
 
     ol_expr_list_comp stmts
       | Just (quals, L _ (LastStmt _ body _ _)) <- GHC.Util.snocView stmts
@@ -181,7 +181,7 @@ oneline (HsModule mname exports imports decls _ _) =
 showOneLine dynFlags mod = showSDocOneLine dynFlags (oneline mod)
 
 ghc path mod = defaultErrorHandler defaultFatalMessager defaultFlushOut $
-  runGhc (Just libdir) $ getSessionDynFlags
+  runGhc (Just libdir) getSessionDynFlags
 
 testO path = do
   Right (ans, src) <- EP.parseModule path
