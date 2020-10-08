@@ -128,7 +128,8 @@ getSourceSimple path mod = defaultErrorHandler defaultFatalMessager defaultFlush
 
 -- getSource :: String -> IO (Maybe TypecheckedModule, DynFlags)
 getSource path =
-  -- withCurrentDirectory "../04/" $
+  -- withCurrentDirectory "../04" $
+  -- withCurrentDirectory "./resources/testProj" $
   defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
       -- TODO: construct cradle in memory
       cradle <- Bios.loadCradle "./hie.yaml"
@@ -137,9 +138,10 @@ getSource path =
       -- putStrLn "===="
       case copt of
         CradleNone                      -> fail "CradleNone: nani?"
-        CradleFail (CradleError _ msgs) -> fail $ show msgs
+        CradleFail (CradleError { cradleErrorStderr = msgs }) -> fail $ show msgs
         CradleSuccess opt -> do
           CradleSuccess libdir <- Bios.getRuntimeGhcLibDir cradle
+          putStrLn $ "Libdir: " ++ libdir
           -- putStrLn $ "Opts: " ++ show opt
           -- let libdir = "/home/maar/.stack/programs/x86_64-linux/ghc-tinfo6-8.8.3/lib/ghc-8.8.3"
           runGhc (Just libdir) $ do
@@ -148,10 +150,10 @@ getSource path =
               dflags <- getSessionDynFlags
               -- To get comments from source we need to use Opt_KeepRawTokenStream option.
               let dflags1 = (dflags `gopt_set` Opt_KeepRawTokenStream)
-              -- let dflags2 = dflags1 {hscTarget = HscInterpreted, ghcLink = LinkInMemory , ghcMode = CompManager }
-              setSessionDynFlags dflags1
+              let dflags2 = dflags1 {hscTarget = HscInterpreted, ghcLink = LinkInMemory , ghcMode = CompManager }
+              setSessionDynFlags dflags2
 
-              -- liftIO $ putStrLn $ showElem $ packageFlags dflags1
+              liftIO $ putStrLn $ showElem $ packageFlags dflags1
 
               -- g <- depanal [] False
               -- liftIO $ putStrLn $ show (map ms_location $ mgModSummaries g)
@@ -172,8 +174,10 @@ getSource path =
               return (t, dflags, hsc_env)
 
 handleModule path = do
-  updateGlobalLogger "hie-bios" (setLevel ERROR)
-  (Just tm, dflags, hsc_env) <- getSource path
+  updateGlobalLogger "hie-bios" (setLevel DEBUG)
+  (tm', dflags, hsc_env) <- getSource path
+  let tm = fromMaybe (error "Module isn't typechecked") tm'
+
   let pmod = tm_parsed_module tm
   let src = pm_parsed_source pmod
   let apianns = pm_annotations pmod
@@ -200,3 +204,12 @@ handleModule' path = do
   let src' = fixInfixRInParsedSource fixities rvs' src
 
   return (ans, src', rvs, dflags)
+
+
+test dir path = do
+  updateGlobalLogger "hie-bios" (setLevel ERROR)
+  withCurrentDirectory dir $ do
+    (tm', dflags, hsc_env) <- getSource path
+    let tm = fromMaybe (error "Module isn't typechecked") tm'
+    let src = pm_parsed_source $ tm_parsed_module tm
+    putStrLn $ showElem src

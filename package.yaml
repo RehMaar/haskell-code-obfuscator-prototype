@@ -27,7 +27,9 @@ dependencies:
 - syb  >= 0.5
 - ghc-paths
 - ghc-source-gen
-- hie-bios
+- hie-bios >= 0.7.0
+- hslogger
+- directory
 
 library:
   source-dirs: src
@@ -53,3 +55,4 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - haskell-code-obfuscator
+    - HUnit

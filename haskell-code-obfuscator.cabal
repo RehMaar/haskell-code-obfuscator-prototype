@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: a3b10780be4b632d08ef76a626ddf6f360233a82320569f65a2c4a9a524e7ceb
+-- hash: ec3347bfeb73e611e32e6133defbaf2b61a02be05b311315124374445cc8a856
 
 name:           haskell-code-obfuscator
 version:        0.1.0.0
@@ -27,7 +27,10 @@ source-repository head
 
 library
   exposed-modules:
-      Lib
+      Obfuscate
+      OneLinePrinter
+      Source
+      Utils
   other-modules:
       Paths_haskell_code_obfuscator
   hs-source-dirs:
@@ -35,10 +38,13 @@ library
   build-depends:
       base >=4.7 && <5
     , containers >=0.6
+    , directory
     , ghc >=8.8.4
     , ghc-exactprint
     , ghc-paths
     , ghc-source-gen
+    , hie-bios >=0.7.0
+    , hslogger
     , syb >=0.5
   default-language: Haskell2010
 
@@ -52,11 +58,14 @@ executable haskell-code-obfuscator-exe
   build-depends:
       base >=4.7 && <5
     , containers >=0.6
+    , directory
     , ghc >=8.8.4
     , ghc-exactprint
     , ghc-paths
     , ghc-source-gen
     , haskell-code-obfuscator
+    , hie-bios >=0.7.0
+    , hslogger
     , syb >=0.5
   default-language: Haskell2010
 
@@ -69,12 +78,16 @@ test-suite haskell-code-obfuscator-test
       test
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      base >=4.7 && <5
+      HUnit
+    , base >=4.7 && <5
     , containers >=0.6
+    , directory
     , ghc >=8.8.4
     , ghc-exactprint
     , ghc-paths
     , ghc-source-gen
     , haskell-code-obfuscator
+    , hie-bios >=0.7.0
+    , hslogger
     , syb >=0.5
   default-language: Haskell2010

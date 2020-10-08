@@ -25,7 +25,7 @@ separate _ [] = []
 separate symb (x:xs) = x O.<> symb : separate symb xs
 
 
--- onelineHead Nothing _ = text ""
+onelineHead Nothing _ = text ""
 onelineHead (Just name) exports =
     pmodname name <+>
     pexports exports
