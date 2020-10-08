@@ -1,11 +1,15 @@
 module Source where
 
+import Data.Maybe
+import Control.Arrow (first)
+
 import Language.Haskell.GHC.ExactPrint as EP
 import Language.Haskell.GHC.ExactPrint.Parsers as EP
 import Language.Haskell.GHC.ExactPrint.Utils as EP
 import Language.Haskell.GHC.ExactPrint.Delta as EP
 
 import GHC
+import qualified HscMain as GHC
 import qualified OccName as GHC
 import qualified RdrName as GHC
 import qualified SrcLoc as GHC
@@ -22,11 +26,13 @@ import GHC.Paths (libdir)
 import DynFlags
 
 import HIE.Bios as Bios
+import HIE.Bios.Environment as Bios
+
+import System.Log.Logger as Log
+import System.Directory
+import Control.Monad.IO.Class
 
 import Data.Generics as SYB
-
-import Data.Maybe
-import Control.Arrow (first)
 
 import Utils
 
@@ -120,40 +126,67 @@ getSourceSimple path mod = defaultErrorHandler defaultFatalMessager defaultFlush
       t <- typecheckModule p
       return (t, dflags, hsc_env)
 
-
-getSource :: String -> IO (Maybe TypecheckedModule, DynFlags)
+-- getSource :: String -> IO (Maybe TypecheckedModule, DynFlags)
 getSource path =
+  -- withCurrentDirectory "../04/" $
   defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
       -- TODO: construct cradle in memory
       cradle <- Bios.loadCradle "./hie.yaml"
       copt <- Bios.getCompilerOptions path cradle
+      -- putStrLn $ show copt
+      -- putStrLn "===="
       case copt of
-        CradleNone -> fail "CradleNone: nani?"
-        CradleFail (CradleError _ msgs) ->
-          fail $ show msgs
-        CradleSuccess opt ->
+        CradleNone                      -> fail "CradleNone: nani?"
+        CradleFail (CradleError _ msgs) -> fail $ show msgs
+        CradleSuccess opt -> do
+          CradleSuccess libdir <- Bios.getRuntimeGhcLibDir cradle
+          -- putStrLn $ "Opts: " ++ show opt
+          -- let libdir = "/home/maar/.stack/programs/x86_64-linux/ghc-tinfo6-8.8.3/lib/ghc-8.8.3"
           runGhc (Just libdir) $ do
               targets <- Bios.initSession opt
               setTargets targets
               dflags <- getSessionDynFlags
               -- To get comments from source we need to use Opt_KeepRawTokenStream option.
-              let dflags' = dflags `gopt_set` Opt_KeepRawTokenStream
-              setSessionDynFlags dflags'
-              load LoadAllTargets
+              let dflags1 = (dflags `gopt_set` Opt_KeepRawTokenStream)
+              -- let dflags2 = dflags1 {hscTarget = HscInterpreted, ghcLink = LinkInMemory , ghcMode = CompManager }
+              setSessionDynFlags dflags1
+
+              -- liftIO $ putStrLn $ showElem $ packageFlags dflags1
+
+              -- g <- depanal [] False
+              -- liftIO $ putStrLn $ show (map ms_location $ mgModSummaries g)
+
+              -- Bios.setTargetFilesWithMessage (Just GHC.batchMsg) [(path, path)]
+
+              -- let get_fp = ml_hs_file . ms_location . pm_mod_summary . tm_parsed_module
+              -- liftIO $ putStrLn $ "Typechecked modules for: " ++ (unlines $ map (show . get_fp) ts)
+
               (t, _) <- loadFile (path, path)
+
+              -- modSum <- getModSummary $ mkModuleName "Utils"
+              -- p <- GHC.parseModule modSum
+              -- t <- typecheckModule p
+
               dflags <- getSessionDynFlags
-              return (t, dflags)
+              hsc_env <- getSession
+              return (t, dflags, hsc_env)
 
 handleModule path = do
-  (Just tm, dflags) <- getSource path
+  updateGlobalLogger "hie-bios" (setLevel ERROR)
+  (Just tm, dflags, hsc_env) <- getSource path
   let pmod = tm_parsed_module tm
   let src = pm_parsed_source pmod
   let apianns = pm_annotations pmod
   -- To get annotations in ExactPrint format.
   let Right (ans, _) = postParseTransform (Right (apianns, [], dflags, src)) normalLayout
-  let rsrc = tm_renamed_source tm
+  let Just (group, _, _, _) = tm_renamed_source tm
 
-  return (ans, src, rsrc, dflags)
+  let rvs = collectLocatedRenamedNames group
+  let rvs' = fmap destructNameToOcc <$> rvs
+  fixities <- getFixities hsc_env
+  let src' = fixInfixRInParsedSource fixities rvs' src
+
+  return (ans, src', rvs, dflags)
 
 handleModule' path = do
   Right (ans, src) <- EP.parseModule path

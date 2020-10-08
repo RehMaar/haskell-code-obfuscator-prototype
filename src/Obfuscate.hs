@@ -462,7 +462,7 @@ addParens e@(NegApp{}) = HsPar noExt (noLoc e)
 addParens x = x
 
 obfuscate path = do
-  (ans, src, rvs, dflags) <- handleModule' path
+  (ans, src, rvs, dflags) <- handleModule path
   let mod = unLoc src
   let modName = fromMaybe "Main" $ getModuleName mod
 
