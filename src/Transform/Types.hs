@@ -11,6 +11,9 @@ import Utils
 data Var = Var { varname :: String, varqual :: Maybe String }
   deriving Eq
 
+qulifiedVar (Var name Nothing) = name
+qulifiedVar (Var name (Just qual)) = qual <> "." <> name
+
 instance Show Var where
   show (Var n Nothing) = show n
   show (Var n (Just q)) = show (q ++ "." ++ n)
@@ -51,6 +54,7 @@ data TransformContext = TC {
     , tcExported :: [String]
     , tcInternal_ :: [TopLevelDef]
   }
+  deriving Show
 
 namesToVars :: [Located Name] -> [Loc Var]
 namesToVars = map nameToVar . filter (GHC.isGoodSrcSpan . GHC.getLoc)

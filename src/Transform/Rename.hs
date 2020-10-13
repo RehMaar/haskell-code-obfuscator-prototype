@@ -1,5 +1,5 @@
 {-# LANGUAGE TypeFamilies, TupleSections #-}
-module Transform.Rename (rename) where
+module Transform.Rename (rename, renameImportedSymbols) where
 
 import Language.Haskell.GHC.ExactPrint as EP
 import Language.Haskell.GHC.ExactPrint.Parsers as EP
@@ -62,6 +62,7 @@ lookupVar = lookupGen (\var name -> (lcloc name == lcloc var) &&
                                     (varname (lcelem var) == lcelem name))id
 lookupDef = lookupGen (\def name -> name == tldefname def) id
 
+rename :: TransformContext -> [(String, String)] -> Anns -> ParsedSource -> (Anns, ParsedSource)
 rename octx renamings ans mod = do
   (ans,) $
     apply changerBind $
@@ -122,7 +123,7 @@ rename octx renamings ans mod = do
      | otherwise = Nothing
 
 -- renameImportedSymbols :: TransformContext -> Anns -> Located (HsModule GhcPs) -> IO (Anns, Located (HsModule GhcPs))
-renameImportedSymbols octx generator ans src = do
+{-renameImportedSymbols octx generator ans src = do
     src <- return $ apply changerImported src
     let decls = uncurry newDecl <$> importedRenamings
     let src' = foldl (\s decl -> addDecl decl <$> s) src decls
@@ -139,6 +140,41 @@ renameImportedSymbols octx generator ans src = do
       | Just newName <- getNewName name
       = HsVar ext (newRdrName newName <$> name)
       -- = HsVar ext (noLoc $ newRdrName newName $ unLoc name)
+    changerImported x = x
+
+    getNewName name = lookupIR (rdrnameToVar name) importedRenamings
+
+    lookupIR _ [] = Nothing
+    lookupIR n@(Loc loc var) ((Loc loc' var', newName):irs)
+      | loc == loc'
+      , varname var == varname var'
+      = Just newName
+      | otherwise = lookupIR n irs-}
+
+renameImportedSymbols :: TransformContext -> [(String, String)] -> Anns -> ParsedSource -> (Anns, ParsedSource)
+renameImportedSymbols octx renamings ans src = let
+    src' = apply changerImported src
+    decls = uncurry newDecl <$> importedRenamings
+    src'' = foldl (\s decl -> addDecl decl <$> s) src' decls
+    in (ans, src'')
+  where
+    importedSymbols :: [Loc Var]
+    importedSymbols = filter ((\q -> isJust q && fromJust q /= tcModName octx) . varqual . lcelem) $ tcVars octx
+
+    importedRenamings :: [(Loc Var, String)]
+    importedRenamings = catMaybes $ map findImported renamings
+
+    findImported (oldName, newName)
+      | Just var <- find (\(Loc _ n) -> varname n == oldName) importedSymbols
+      = Just (var, newName)
+    findImported _ = Nothing
+
+    newDecl (Loc _ var) newName = createDecl newName $ varname var
+
+    changerImported :: GHC.HsExpr GhcPs -> GHC.HsExpr GhcPs
+    changerImported (HsVar ext name)
+      | Just newName <- getNewName name
+      = HsVar ext (newRdrName newName <$> name)
     changerImported x = x
 
     getNewName name = lookupIR (rdrnameToVar name) importedRenamings

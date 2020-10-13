@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 08c9ce4a6b4b19f8d906932fa0c95506cfd3a74aeb1b2e1d92b03199bc4ccdf4
+-- hash: 004a475f20743b4e3393983b70476cdaff73a661fa72932c853155a13944d0ae
 
 name:           haskell-code-obfuscator
 version:        0.1.0.0
@@ -50,6 +50,7 @@ library
     , ghc-source-gen
     , hie-bios >=0.7.0
     , hslogger
+    , random
     , syb >=0.5
   default-language: Haskell2010
 
@@ -72,6 +73,7 @@ executable haskell-code-obfuscator-exe
     , haskell-code-obfuscator
     , hie-bios >=0.7.0
     , hslogger
+    , random
     , syb >=0.5
   default-language: Haskell2010
 
@@ -96,5 +98,6 @@ test-suite haskell-code-obfuscator-test
     , haskell-code-obfuscator
     , hie-bios >=0.7.0
     , hslogger
+    , random
     , syb >=0.5
   default-language: Haskell2010

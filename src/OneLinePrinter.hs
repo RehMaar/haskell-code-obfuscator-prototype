@@ -76,7 +76,7 @@ onelineDecls = hsep . separate semi  . map (ol_decl . unLoc)
       hcat (map ((\(a, b) -> a <+> con <+> b) . ol_grhs . unLoc) gs)
       O.<> if isEmptyLocalBindsPR (unLoc lbs)
            then empty
-           else text " where" <+> ol_lbinds (unLoc lbs)
+           else text " where {" <+> ol_lbinds (unLoc lbs) <+> text "}"
 
     ol_lbinds (HsValBinds _ b) = ol_valbind b
     ol_lbinds (HsIPBinds _ b)  = error "HsIPBinds?"

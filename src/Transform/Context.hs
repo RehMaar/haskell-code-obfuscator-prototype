@@ -77,9 +77,9 @@ initTransformContext modName rvs mod =
       (topLevelDefs, args, innerDefs, vars) = foldl' collectTldInfo ([], [], [], []) tldefs
 
       exported = "main" : fromMaybe [] (collectExportedSym mod)
-      locals = allLocalSymbols args innerDefs vars
+      symbols = allSymbols args innerDefs vars
       notExportedDefs = (lcelem <$> topLevelDefs) \\ exported
-      names = unique $ locals <> notExportedDefs
+      names = unique $ symbols <> notExportedDefs
       -- renamings = zip names $ generateObfuscatedNames names
   in TC {
       tcModName = modName,
@@ -109,11 +109,7 @@ addQualifications vars = fmap (update vars)
       | l == loc, n == name = Just q
       | otherwise = findQual vs v
 
-allLocalSymbols args defs vars =
+allSymbols args defs vars =
    (lcelem <$> args)
    <> (defname . lcelem <$> defs)
-   <> (varname . lcelem <$> filter (isLocal . lcelem) vars)
-  where
-    isLocal (Var _ Nothing) = True
-    isLocal _ = False
-
+   <> (varname . lcelem <$> vars)
