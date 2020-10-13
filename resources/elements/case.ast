@@ -1,0 +1,397 @@
+[1 of 1] Compiling Main             ( case.hs, case.o )
+
+==================== Parser AST ====================
+
+({ case.hs:1:1 }
+ (HsModule
+  (Just
+   ({ case.hs:1:8-11 }
+    {ModuleName: Main}))
+  (Nothing)
+  []
+  [({ case.hs:3:1-24 }
+    (SigD
+     (NoExt)
+     (TypeSig
+      (NoExt)
+      [({ case.hs:3:1-8 }
+        (Unqual
+         {OccName: testCase}))]
+      (HsWC
+       (NoExt)
+       (HsIB
+        (NoExt)
+        ({ case.hs:3:13-24 }
+         (HsFunTy
+          (NoExt)
+          ({ case.hs:3:13-15 }
+           (HsTyVar
+            (NoExt)
+            (NotPromoted)
+            ({ case.hs:3:13-15 }
+             (Unqual
+              {OccName: Int}))))
+          ({ case.hs:3:20-24 }
+           (HsListTy
+            (NoExt)
+            ({ case.hs:3:21-23 }
+             (HsTyVar
+              (NoExt)
+              (NotPromoted)
+              ({ case.hs:3:21-23 }
+               (Unqual
+                {OccName: Int})))))))))))))
+  ,({ case.hs:(4,1)-(6,41) }
+    (ValD
+     (NoExt)
+     (FunBind
+      (NoExt)
+      ({ case.hs:4:1-8 }
+       (Unqual
+        {OccName: testCase}))
+      (MG
+       (NoExt)
+       ({ case.hs:(4,1)-(6,41) }
+        [({ case.hs:(4,1)-(6,41) }
+          (Match
+           (NoExt)
+           (FunRhs
+            ({ case.hs:4:1-8 }
+             (Unqual
+              {OccName: testCase}))
+            (Prefix)
+            (NoSrcStrict))
+           [(XPat
+             ({ case.hs:4:10 }
+              (VarPat
+               (NoExt)
+               ({ case.hs:4:10 }
+                (Unqual
+                 {OccName: x})))))]
+           (GRHSs
+            (NoExt)
+            [({ case.hs:(4,12)-(6,41) }
+              (GRHS
+               (NoExt)
+               []
+               ({ case.hs:(4,14)-(6,41) }
+                (HsCase
+                 (NoExt)
+                 ({ case.hs:4:19 }
+                  (HsVar
+                   (NoExt)
+                   ({ case.hs:4:19 }
+                    (Unqual
+                     {OccName: x}))))
+                 (MG
+                  (NoExt)
+                  ({ case.hs:(5,16)-(6,41) }
+                   [({ case.hs:5:16-22 }
+                     (Match
+                      (NoExt)
+                      (CaseAlt)
+                      [(XPat
+                        ({ case.hs:5:16 }
+                         (NPat
+                          (NoExt)
+                          ({ case.hs:5:16 }
+                           (OverLit
+                            (NoExt)
+                            (HsIntegral
+                             (IL
+                              (SourceText
+                               "0")
+                              (False)
+                              (0)))
+                            (HsLit
+                             (NoExt)
+                             (HsString
+                              (SourceText
+                               "noExpr")
+                              {FastString: "noExpr"}))))
+                          (Nothing)
+                          (SyntaxExpr
+                           (HsLit
+                            (NoExt)
+                            (HsString
+                             (NoSourceText)
+                             {FastString: "noSyntaxExpr"}))
+                           []
+                           (WpHole)))))]
+                      (GRHSs
+                       (NoExt)
+                       [({ case.hs:5:18-22 }
+                         (GRHS
+                          (NoExt)
+                          []
+                          ({ case.hs:5:21-22 }
+                           (HsVar
+                            (NoExt)
+                            ({ case.hs:5:21-22 }
+                             (Exact
+                              {Name: []}))))))]
+                       ({ <no location info> }
+                        (EmptyLocalBinds
+                         (NoExt))))))
+                   ,({ case.hs:6:16-41 }
+                     (Match
+                      (NoExt)
+                      (CaseAlt)
+                      [(XPat
+                        ({ case.hs:6:16 }
+                         (VarPat
+                          (NoExt)
+                          ({ case.hs:6:16 }
+                           (Unqual
+                            {OccName: x})))))]
+                      (GRHSs
+                       (NoExt)
+                       [({ case.hs:6:18-41 }
+                         (GRHS
+                          (NoExt)
+                          []
+                          ({ case.hs:6:21-41 }
+                           (OpApp
+                            (NoExt)
+                            ({ case.hs:6:21 }
+                             (HsVar
+                              (NoExt)
+                              ({ case.hs:6:21 }
+                               (Unqual
+                                {OccName: x}))))
+                            ({ case.hs:6:23 }
+                             (HsVar
+                              (NoExt)
+                              ({ case.hs:6:23 }
+                               (Exact
+                                {Name: :}))))
+                            ({ case.hs:6:25-41 }
+                             (HsApp
+                              (NoExt)
+                              ({ case.hs:6:25-32 }
+                               (HsVar
+                                (NoExt)
+                                ({ case.hs:6:25-32 }
+                                 (Unqual
+                                  {OccName: testCase}))))
+                              ({ case.hs:6:34-41 }
+                               (HsPar
+                                (NoExt)
+                                ({ case.hs:6:35-40 }
+                                 (HsApp
+                                  (NoExt)
+                                  ({ case.hs:6:35-38 }
+                                   (HsVar
+                                    (NoExt)
+                                    ({ case.hs:6:35-38 }
+                                     (Unqual
+                                      {OccName: pred}))))
+                                  ({ case.hs:6:40 }
+                                   (HsVar
+                                    (NoExt)
+                                    ({ case.hs:6:40 }
+                                     (Unqual
+                                      {OccName: x}))))))))))))))]
+                       ({ <no location info> }
+                        (EmptyLocalBinds
+                         (NoExt))))))])
+                  (FromSource))))))]
+            ({ <no location info> }
+             (EmptyLocalBinds
+              (NoExt))))))])
+       (FromSource))
+      (WpHole)
+      [])))
+  ,({ case.hs:(8,1)-(10,30) }
+    (ValD
+     (NoExt)
+     (FunBind
+      (NoExt)
+      ({ case.hs:8:1-4 }
+       (Unqual
+        {OccName: main}))
+      (MG
+       (NoExt)
+       ({ case.hs:(8,1)-(10,30) }
+        [({ case.hs:(8,1)-(10,30) }
+          (Match
+           (NoExt)
+           (FunRhs
+            ({ case.hs:8:1-4 }
+             (Unqual
+              {OccName: main}))
+            (Prefix)
+            (NoSrcStrict))
+           []
+           (GRHSs
+            (NoExt)
+            [({ case.hs:(8,6)-(10,30) }
+              (GRHS
+               (NoExt)
+               []
+               ({ case.hs:(8,8)-(10,30) }
+                (HsDo
+                 (NoExt)
+                 (DoExpr)
+                 ({ case.hs:(9,3)-(10,30) }
+                  [({ case.hs:9:3-30 }
+                    (BodyStmt
+                     (NoExt)
+                     ({ case.hs:9:3-30 }
+                      (OpApp
+                       (NoExt)
+                       ({ case.hs:9:3-17 }
+                        (OpApp
+                         (NoExt)
+                         ({ case.hs:9:3-10 }
+                          (HsVar
+                           (NoExt)
+                           ({ case.hs:9:3-10 }
+                            (Unqual
+                             {OccName: putStrLn}))))
+                         ({ case.hs:9:12 }
+                          (HsVar
+                           (NoExt)
+                           ({ case.hs:9:12 }
+                            (Unqual
+                             {OccName: $}))))
+                         ({ case.hs:9:14-17 }
+                          (HsVar
+                           (NoExt)
+                           ({ case.hs:9:14-17 }
+                            (Unqual
+                             {OccName: show}))))))
+                       ({ case.hs:9:19 }
+                        (HsVar
+                         (NoExt)
+                         ({ case.hs:9:19 }
+                          (Unqual
+                           {OccName: $}))))
+                       ({ case.hs:9:21-30 }
+                        (HsApp
+                         (NoExt)
+                         ({ case.hs:9:21-28 }
+                          (HsVar
+                           (NoExt)
+                           ({ case.hs:9:21-28 }
+                            (Unqual
+                             {OccName: testCase}))))
+                         ({ case.hs:9:30 }
+                          (HsOverLit
+                           (NoExt)
+                           (OverLit
+                            (NoExt)
+                            (HsIntegral
+                             (IL
+                              (SourceText
+                               "0")
+                              (False)
+                              (0)))
+                            (HsLit
+                             (NoExt)
+                             (HsString
+                              (SourceText
+                               "noExpr")
+                              {FastString: "noExpr"})))))))))
+                     (SyntaxExpr
+                      (HsLit
+                       (NoExt)
+                       (HsString
+                        (NoSourceText)
+                        {FastString: "noSyntaxExpr"}))
+                      []
+                      (WpHole))
+                     (SyntaxExpr
+                      (HsLit
+                       (NoExt)
+                       (HsString
+                        (NoSourceText)
+                        {FastString: "noSyntaxExpr"}))
+                      []
+                      (WpHole))))
+                  ,({ case.hs:10:3-30 }
+                    (BodyStmt
+                     (NoExt)
+                     ({ case.hs:10:3-30 }
+                      (OpApp
+                       (NoExt)
+                       ({ case.hs:10:3-17 }
+                        (OpApp
+                         (NoExt)
+                         ({ case.hs:10:3-10 }
+                          (HsVar
+                           (NoExt)
+                           ({ case.hs:10:3-10 }
+                            (Unqual
+                             {OccName: putStrLn}))))
+                         ({ case.hs:10:12 }
+                          (HsVar
+                           (NoExt)
+                           ({ case.hs:10:12 }
+                            (Unqual
+                             {OccName: $}))))
+                         ({ case.hs:10:14-17 }
+                          (HsVar
+                           (NoExt)
+                           ({ case.hs:10:14-17 }
+                            (Unqual
+                             {OccName: show}))))))
+                       ({ case.hs:10:19 }
+                        (HsVar
+                         (NoExt)
+                         ({ case.hs:10:19 }
+                          (Unqual
+                           {OccName: $}))))
+                       ({ case.hs:10:21-30 }
+                        (HsApp
+                         (NoExt)
+                         ({ case.hs:10:21-28 }
+                          (HsVar
+                           (NoExt)
+                           ({ case.hs:10:21-28 }
+                            (Unqual
+                             {OccName: testCase}))))
+                         ({ case.hs:10:30 }
+                          (HsOverLit
+                           (NoExt)
+                           (OverLit
+                            (NoExt)
+                            (HsIntegral
+                             (IL
+                              (SourceText
+                               "3")
+                              (False)
+                              (3)))
+                            (HsLit
+                             (NoExt)
+                             (HsString
+                              (SourceText
+                               "noExpr")
+                              {FastString: "noExpr"})))))))))
+                     (SyntaxExpr
+                      (HsLit
+                       (NoExt)
+                       (HsString
+                        (NoSourceText)
+                        {FastString: "noSyntaxExpr"}))
+                      []
+                      (WpHole))
+                     (SyntaxExpr
+                      (HsLit
+                       (NoExt)
+                       (HsString
+                        (NoSourceText)
+                        {FastString: "noSyntaxExpr"}))
+                      []
+                      (WpHole))))])))))]
+            ({ <no location info> }
+             (EmptyLocalBinds
+              (NoExt))))))])
+       (FromSource))
+      (WpHole)
+      [])))]
+  (Nothing)
+  (Nothing)))
+
+
+Linking case ...
