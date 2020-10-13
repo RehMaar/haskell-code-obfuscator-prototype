@@ -5,6 +5,8 @@ import Language.Haskell.GHC.ExactPrint.Parsers
 import Outputable
 import SrcLoc
 
+import Control.Arrow
+
 import Transform.Obfuscate
 import Source
 import OneLinePrinter
@@ -25,4 +27,18 @@ obfuscateCommon mod path = do
   putStrLn code
   -- Right (ans, src) <- parseModuleFromString path code
   -- putStrLn $ showSDocDebug dflags $ ppr src
-  writeFile "resources/o.hs" code
+  -- let newPath = newFileName path
+  -- if newPath == path
+  -- then fail "Unable to generate unique filename"
+  -- else writeFile newPath code
+
+-- better not to use on filenames without '.hs'
+newFileName path = let
+   (extR, nameR) = break' (== '.') $ reverse path
+   name = reverse nameR
+   ext = reverse extR
+  in name ++ "_obf" ++ ext
+
+break' _ [] = ([], [])
+break' cond (x:xs) | cond x = ([x], xs)
+                   | otherwise = first (x:) $ break' cond xs
