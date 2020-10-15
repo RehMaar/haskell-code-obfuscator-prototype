@@ -51,10 +51,11 @@ import           Transform.Query
 
 type FixityEnv = [(String, [(GHC.OccName, GHC.Fixity)])]
 
-lookupFixityByName :: FixityEnv -> GHC.OccName -> String -> Maybe GHC.Fixity
-lookupFixityByName env name modname | Just symbs <- lookup modname env =
-  lookup name symbs
-lookupFixityByName _ _ _ = Nothing
+lookupFixityByName :: FixityEnv -> GHC.OccName -> String -> GHC.Fixity
+lookupFixityByName env name modname
+  | Just symbs <- lookup modname env
+  = fromMaybe (GHC.defaultFixity) $ lookup name symbs
+lookupFixityByName _ _ _ = GHC.defaultFixity
 
 --
 -- At https://gitlab.haskell.org/ghc/ghc/-/wikis/commentary/compiler/parser:
@@ -74,12 +75,12 @@ fixInfixRInParsedSource fenv rvs = SYB.everywhere (SYB.mkT $ fix fenv rvs)
     -> LHsExpr GhcPs
     -> LHsExpr GhcPs
   fix fenv rvs (L loc (OpApp _ right@(L _ (OpApp _ right' op' left')) op left))
-    | opNm        <- GHC.rdrNameOcc <$> opName op
-    , opNm'       <- GHC.rdrNameOcc <$> opName op'
-    , Just opFix  <- lookupFixityByName fenv (unLoc opNm) $ findModName rvs opNm
-    , Just opFix' <- lookupFixityByName fenv (unLoc opNm') $ findModName rvs opNm'
-    , (_, True)   <- compareFixity opFix' opFix
-    = {- fix fenv rvs $-} L loc $ opapp right' op' $ fix fenv rvs $ noLoc $ opapp left' op left
+    | opNm   <- GHC.rdrNameOcc <$> opName op
+    , opNm'  <- GHC.rdrNameOcc <$> opName op'
+    , opFix  <- lookupFixityByName fenv (unLoc opNm) $ findModName rvs opNm
+    , opFix' <- lookupFixityByName fenv (unLoc opNm') $ findModName rvs opNm'
+    , (_, True) <- compareFixity opFix' opFix
+    = L loc $ opapp right' op' $ fix fenv rvs $ noLoc $ opapp left' op left
   fix _ _ x = x
 
   opapp = OpApp noExt

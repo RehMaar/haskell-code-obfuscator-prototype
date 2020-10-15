@@ -155,7 +155,7 @@ transformDoToLam (HsDo _ DoExpr (L _ es)) = foldToExpr es
   foldLets' k []       = k
   foldLets' k (b : bs) = foldLets' (bindToLamOrLet k b) bs
 
-  -- let funname = fun in funanme
+  -- Case: let funname = fun in funanme
   bindToLamOrLet :: HsExpr GhcPs -> HsBind GhcPs -> HsExpr GhcPs
   bindToLamOrLet k fb@FunBind { fun_id = L _ funname } =
     let
@@ -192,8 +192,8 @@ transformStringAndChars freeName =
     createVar freeName SG.@@ SG.int (toInteger $ fromEnum chr)
   transformChar x = x
 
-  -- "str" -> [int1, int2, int3]
-  --  -> (map toChar [int1, int2, int3])
+  -- "str" -> [chr1, chr2, chr3]
+  --       -> (map toChar [int1, int2, int3])
   transformString' :: String -> HsExpr GhcPs -> HsExpr GhcPs
   transformString' freeName (HsLit _ (HsString _ str)) =
     let lst  = stringToList (GHC.unpackFS str)
@@ -229,8 +229,6 @@ addParens :: HsExpr GhcPs -> HsExpr GhcPs
 addParens e@OpApp{}  = HsPar noExt (noLoc e)
 addParens e@NegApp{} = HsPar noExt (noLoc e)
 addParens x          = x
-
--- newDeclarationName renamings =
 
 -- For debug pursposes
 instance Show (GenLocated SrcSpan RdrName) where
