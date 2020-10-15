@@ -1,4 +1,6 @@
-{-# LANGUAGE TypeFamilies, FlexibleInstances, TupleSections, OverloadedStrings #-}
+{-# LANGUAGE TypeFamilies, FlexibleInstances, TupleSections,
+             OverloadedStrings, DeriveFunctor
+#-}
 
 module Transform.Obfuscate where
 
@@ -50,6 +52,8 @@ import           Transform.Context
 import           Transform.Rename
 
 import           Debug.Trace
+
+import Data.Generics
 
 generateObfuscatedNamesOld ns = zip ns $ generateObfuscatedNames' 1 ns
   where
@@ -177,31 +181,43 @@ transformDoToLam x = x
 -- TODO: do not add new declaration if nothing was changed
 transformStringAndChars
   :: String -> Located (HsModule GhcPs) -> Located (HsModule GhcPs)
-transformStringAndChars freeName =
-  fmap (addDeclWithSig decl sig)
-    . apply (transformString' freeName)
-    . apply transformChar
+transformStringAndChars freeName src =
+  -- fmap (addDeclWithSig decl sig)
+  --   . apply (transformString' freeName)
+  --   -- . apply transformChar
+  let result = applyM transformCharM src >>= applyM transformCharM
+  in addIfChanged result $ fromChanged result
  where
+  addIfChanged result
+    | isChanged result
+    = fmap (addDeclWithSig decl sig)
+    | otherwise
+    = id
   decl = createDecl freeName "toEnum"
   sig =
     SG.typeSig (fromString freeName) (createVar "Int" SG.--> createVar "Char")
 
   -- 'c' -> (toChar n)
-  transformChar :: HsExpr GhcPs -> HsExpr GhcPs
+  transformCharM :: HsExpr GhcPs -> Changed (HsExpr GhcPs)
+  transformCharM (HsLit _ (HsChar _ chr)) =
+    changed $ createVar freeName SG.@@ SG.int (toInteger $ fromEnum chr)
+  transformCharM x = unchanged x
+
+{-  transformChar :: HsExpr GhcPs -> HsExpr GhcPs
   transformChar (HsLit _ (HsChar _ chr)) =
     createVar freeName SG.@@ SG.int (toInteger $ fromEnum chr)
-  transformChar x = x
+  transformChar x = x-}
 
   -- "str" -> [chr1, chr2, chr3]
   --       -> (map toChar [int1, int2, int3])
-  transformString' :: String -> HsExpr GhcPs -> HsExpr GhcPs
-  transformString' freeName (HsLit _ (HsString _ str)) =
+  transformStringM :: String -> HsExpr GhcPs -> Changed (HsExpr GhcPs)
+  transformStringM freeName (HsLit _ (HsString _ str)) =
     let lst  = stringToList (GHC.unpackFS str)
         lst' = listToHsList lst
-    in  SG.par
+    in  changed $ SG.par
           $     (SG.var (fromString "map") SG.@@ SG.var (fromString freeName))
           SG.@@ lst'
-  transformString' _ x = x
+  transformStringM _ x = unchanged x
 
   listToHsList :: [Int] -> HsExpr GhcPs
   listToHsList = SG.list . map (SG.int . toInteger)
@@ -273,7 +289,7 @@ obfuscate (SourceInfo ans src rvs _) =
       (ans2, src2) = renameImportedSymbols ctx renamings ans src1
       -- Possibly, add new declaration.
       (gen3, newDeclName) = generateFreshName pullOfSymbols gen2 (uncurry (++) $ unzip renamings)
-      src3         = transformStringAndChars newDeclName src2
+      src3                = transformStringAndChars newDeclName src2
     in
     (ans2,) $
     apply addParens                  $
@@ -281,4 +297,4 @@ obfuscate (SourceInfo ans src rvs _) =
     applyTopDown transformOpToApp $
     apply transformIfCase $
     apply transformMultiArgLam $
-    src2
+    src3

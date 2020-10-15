@@ -1,5 +1,13 @@
-module Transform.Query where
-
+{-# LANGUAGE DeriveFunctor #-}
+module Transform.Query (
+    -- Queries to collect some info into a list.
+    collect, collectBut, collectBut',
+    -- Queries to apply changes to a data structre.
+    apply, applyBut, applyTopDown, applyM,
+    -- A monad to track if changes were applied.
+    Changed, isChanged, fromChanged, unchanged, changed
+    ) where
+    
 import Data.Generics as SYB
 import Control.Arrow ((&&&))
 
@@ -20,3 +28,18 @@ applyBut stopper changer = SYB.everywhereBut (SYB.mkQ False stopper) (SYB.mkT ch
 
 -- | Apply a change to a parsed tree in top-down manner.
 applyTopDown changer = SYB.everywhere' (SYB.mkT changer)
+
+applyM changer = SYB.everywhereM (SYB.mkM changer)
+
+data Changed a = Changed { isChanged :: Bool, fromChanged :: a }
+  deriving Functor
+
+instance Applicative Changed where
+    pure = Changed False
+    Changed b1 f <*> Changed b2 a = Changed (b1 || b2) (f a)
+
+instance Monad Changed where
+   Changed b a >>= f = case f a of { Changed b2 a -> Changed (b || b2) a }
+
+changed = Changed True
+unchanged = Changed False
