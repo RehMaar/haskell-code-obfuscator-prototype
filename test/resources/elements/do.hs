@@ -3,7 +3,7 @@ module Main where
 
 testDo1 = do
     putStrLn "Privet"
-    b <- readLn
+    b <- return "Da"
     putStrLn (b ++ "?")
     let a = "A u mena normal'no"
     putStrLn a
