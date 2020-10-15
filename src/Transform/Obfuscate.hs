@@ -178,15 +178,15 @@ transformDoToLam x = x
 --
 -- Maybe, there's better solutions.
 --
--- TODO: do not add new declaration if nothing was changed
+-- TODO: bug with overloaded literals
 transformStringAndChars
   :: String -> Located (HsModule GhcPs) -> Located (HsModule GhcPs)
 transformStringAndChars freeName src =
   -- fmap (addDeclWithSig decl sig)
   --   . apply (transformString' freeName)
   --   -- . apply transformChar
-  let result = applyM transformCharM src >>= applyM transformCharM
-  in addIfChanged result $ fromChanged result
+  let result = applyM transformCharM src >>= applyM (transformStringM freeName)
+  in addIfChanged result2 $ fromChanged result2
  where
   addIfChanged result
     | isChanged result
@@ -203,20 +203,13 @@ transformStringAndChars freeName src =
     changed $ createVar freeName SG.@@ SG.int (toInteger $ fromEnum chr)
   transformCharM x = unchanged x
 
-{-  transformChar :: HsExpr GhcPs -> HsExpr GhcPs
-  transformChar (HsLit _ (HsChar _ chr)) =
-    createVar freeName SG.@@ SG.int (toInteger $ fromEnum chr)
-  transformChar x = x-}
-
   -- "str" -> [chr1, chr2, chr3]
   --       -> (map toChar [int1, int2, int3])
   transformStringM :: String -> HsExpr GhcPs -> Changed (HsExpr GhcPs)
-  transformStringM freeName (HsLit _ (HsString _ str)) =
+  transformStringM freeName e@(HsLit _ (HsString _ str)) =
     let lst  = stringToList (GHC.unpackFS str)
         lst' = listToHsList lst
-    in  changed $ SG.par
-          $     (SG.var (fromString "map") SG.@@ SG.var (fromString freeName))
-          SG.@@ lst'
+    in changed $ SG.par $ (SG.var (fromString "map") SG.@@ SG.var (fromString freeName)) SG.@@ lst'
   transformStringM _ x = unchanged x
 
   listToHsList :: [Int] -> HsExpr GhcPs
