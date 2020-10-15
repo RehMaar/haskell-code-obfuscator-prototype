@@ -37,6 +37,7 @@ import qualified Data.Map                      as Map
 import           Data.Maybe
 import           Data.List
 import           Data.String
+import           Data.Char
 import           Control.Arrow                  ( (&&&), first )
 import           System.Random
 
@@ -58,30 +59,37 @@ generateObfuscatedNamesOld ns = zip ns $ generateObfuscatedNames' 1 ns
         -- gen n _ = concatMap show $ take n [n..]
             gen n _ = 'a' : show n -- take n ['a', 'a' ..]
 
-generateObfuscatedNamesRandom gen names =
-  zip names <$>
-  foldr (\n (gen, rs) -> (:rs) <$> genForName gen names rs n) (gen, []) names
-  where
-    pullOfSymbols = ['A'..'Z'] ++ ['a'..'z']
-    -- range = (0, pred $ length pullOfSymbols)
-    range = (0, pred $ length pullOfSymbols)
-    rangeWordLen = (1, 10 :: Int)
+-- generateObfuscatedNamesRandom :: StdGen -> [Char] -> [String] -> (StdGen, [(String, String)])
+generateObfuscatedNamesRandom gen pull names =
+  fst <$>
+  foldr (\n (gen, (rs, names)) ->
+           let (gen1, newName) = generateFreshName pull gen names
+           in (gen1, ((n, newName) : rs, newName : names)))
+        (gen, ([], names))
+        names
 
-    genName gen 0 = (gen, [])
-    genName gen wordLen =
-      let (symbolNo, gen') = randomR range gen
-      in ((pullOfSymbols !! symbolNo):) <$> genName gen' (pred wordLen)
+pullOfSymbols :: [Char]
+pullOfSymbols = ['A'..'Z'] ++ ['a'..'z']
+-- range = (0, pred $ length pullOfSymbols)
+-- rangeWordLen = (1, 10 :: Int)
 
-    tryName names renamings newName = newName `notElem` names && newName `notElem` renamings
+generateName :: [Char] -> StdGen -> Int -> (StdGen, String)
+generateName _ gen 0 = (gen, [])
+generateName pull gen wordLen =
+  let (symbolNo, gen') = randomR range gen
+  in ((pullOfSymbols !! symbolNo):) <$> generateName pull gen' (pred wordLen)
+  where range = (0, pred $ length pull)
 
-    genForName :: StdGen -> [String] -> [String] -> String -> (StdGen, String)
-    genForName gen names renamings name =
-      let (wordLen, gen1) = randomR rangeWordLen gen
-          (gen2, newName') = genName gen1 wordLen
-          newName = 'a' : newName'
-      in if tryName names renamings newName
-         then (gen2, newName)
-         else genForName gen2 names renamings name
+tryName names newName = newName `notElem` names
+
+generateFreshName :: [Char] -> StdGen -> [String] -> (StdGen, String)
+generateFreshName pull gen names =
+  let (wordLen, gen1) = randomR (1, 10 :: Int) gen
+      (gen2, (s:newName')) = generateName pull gen1 wordLen
+      newName = toLower s : newName'
+  in if tryName names newName
+     then (gen2, newName)
+     else generateFreshName pull gen2 names
 
 
 -- | Transform operators to application form.
@@ -118,7 +126,7 @@ transformOpToApp x = x
 --    ==>
 --   a1 >>= \r1 -> (\l1 -> a2 >>= \r2 -> (... \rn -> e)) s1
 transformDoToLam :: HsExpr GhcPs -> HsExpr GhcPs
-transformDoToLam (HsDo _ _ (L _ es)) = foldToExpr es
+transformDoToLam (HsDo _ DoExpr (L _ es)) = foldToExpr es
  where
   foldToExpr :: [ExprLStmt GhcPs] -> HsExpr GhcPs
   foldToExpr [e     ] = lastStmt (unLoc e)
@@ -166,6 +174,7 @@ transformDoToLam x = x
 --
 -- Maybe, there's better solutions.
 --
+-- TODO: do not add new declaration if nothing was changed
 transformStringAndChars
   :: String -> Located (HsModule GhcPs) -> Located (HsModule GhcPs)
 transformStringAndChars freeName =
@@ -234,29 +243,42 @@ obfuscateNames (SourceInfo ans src rvs _) =
 
       ctx        = initTransformContext modName rvs $ unLoc src
       gen        = mkStdGen 13
-      (gen2, renamings) = generateObfuscatedNamesRandom gen (tcNames ctx)
+      (gen2, renamings) = generateObfuscatedNamesRandom gen pullOfSymbols (tcNames ctx)
       -- renamings = generateObfuscatedNamesOld (tcNames ctx)
       (ans1, src1) = rename ctx renamings ans src
       (ans2, src2) = renameImportedSymbols ctx renamings ans src1
   in (ans2, src2)
 
+obfuscateStructure :: SourceInfo -> (Anns, ParsedSource)
+obfuscateStructure (SourceInfo ans src rvs _) =
+    (ans,) $
+    apply addParens $
+    -- transformStringAndChars "toChar" $
+    apply transformDoToLam           $
+    applyTopDown transformOpToApp $
+    apply transformIfCase $
+    apply transformMultiArgLam $
+    src
+
 obfuscate :: SourceInfo -> (Anns, ParsedSource)
-obfuscate (SourceInfo ans src rvs dflags) =
+obfuscate (SourceInfo ans src rvs _) =
   let mod       = unLoc src
       modName   = fromMaybe "Main" $ getModuleName mod
 
       -- TODO: maybe some transformations will need transformation context
       ctx        = initTransformContext modName rvs $ unLoc src
       gen        = mkStdGen 13
-      (gen2, renamings) = generateObfuscatedNamesRandom gen (tcNames ctx)
+      (gen2, renamings) = generateObfuscatedNamesRandom gen pullOfSymbols (tcNames ctx)
       -- renamings = generateObfuscatedNamesOld (tcNames ctx)
-  in let
+      -- Rename
       (ans1, src1) = rename ctx renamings ans src
       (ans2, src2) = renameImportedSymbols ctx renamings ans src1
+      -- Possibly, add new declaration.
+      (gen3, newDeclName) = generateFreshName pullOfSymbols gen2 (uncurry (++) $ unzip renamings)
+      src3         = transformStringAndChars newDeclName src2
     in
     (ans2,) $
     apply addParens                  $
-    transformStringAndChars "toChar" $
     apply transformDoToLam           $
     applyTopDown transformOpToApp $
     apply transformIfCase $
