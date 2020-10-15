@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE TupleSections #-}
 module Transform.Query (
     -- Queries to collect some info into a list.
     collect, collectBut, collectBut',
@@ -31,15 +31,18 @@ applyTopDown changer = SYB.everywhere' (SYB.mkT changer)
 
 applyM changer = SYB.everywhereM (SYB.mkM changer)
 
-data Changed a = Changed { isChanged :: Bool, fromChanged :: a }
-  deriving Functor
+newtype Or = Or Bool deriving (Show)
 
-instance Applicative Changed where
-    pure = Changed False
-    Changed b1 f <*> Changed b2 a = Changed (b1 || b2) (f a)
+instance Semigroup Or where
+    (Or a) <> (Or b) = Or $ a || b
 
-instance Monad Changed where
-   Changed b a >>= f = case f a of { Changed b2 a -> Changed (b || b2) a }
+instance Monoid Or where
+    mempty = Or False
 
-changed = Changed True
-unchanged = Changed False
+type Changed a = (Or, a)
+
+isChanged (Or o, _) = o
+fromChanged (_, a) = a
+
+changed = (Or True, )
+unchanged = (Or False, )
