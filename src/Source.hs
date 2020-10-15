@@ -74,13 +74,12 @@ fixInfixRInParsedSource fenv rvs = SYB.everywhere (SYB.mkT $ fix fenv rvs)
     -> LHsExpr GhcPs
     -> LHsExpr GhcPs
   fix fenv rvs (L loc (OpApp _ right@(L _ (OpApp _ right' op' left')) op left))
-    | opNm <- GHC.rdrNameOcc <$> opName op
-    , opNm' <- GHC.rdrNameOcc <$> opName op'
-    , Just opFix <- lookupFixityByName fenv (unLoc opNm) $ findModName rvs opNm
-    , Just opFix' <- lookupFixityByName fenv (unLoc opNm')
-      $ findModName rvs opNm'
-    , (_, True) <- compareFixity opFix' opFix
-    = L loc $ opapp right' op' $ noLoc $ opapp left' op left
+    | opNm        <- GHC.rdrNameOcc <$> opName op
+    , opNm'       <- GHC.rdrNameOcc <$> opName op'
+    , Just opFix  <- lookupFixityByName fenv (unLoc opNm) $ findModName rvs opNm
+    , Just opFix' <- lookupFixityByName fenv (unLoc opNm') $ findModName rvs opNm'
+    , (_, True)   <- compareFixity opFix' opFix
+    = {- fix fenv rvs $-} L loc $ opapp right' op' $ fix fenv rvs $ noLoc $ opapp left' op left
   fix _ _ x = x
 
   opapp = OpApp noExt
@@ -131,6 +130,7 @@ data SourceInfo = SourceInfo {
 handleModule SimpleModule         = handleModuleWith getSourceSimple
 handleModule (ProjectModule wdir) = handleModuleWith (getSourceProject wdir)
 
+
 handleModuleWith get path = do
   (tm', dflags, hsc_env) <- get path
   let tm      = fromMaybe (error "Module isn't typechecked") tm'
@@ -147,6 +147,11 @@ handleModuleWith get path = do
   let rvs'                  = fmap destructNameToOcc <$> rvs
   fixities <- getFixities hsc_env
   let src' = fixInfixRInParsedSource fixities rvs' src
+  -- let src' = src
+  -- let grp = apply addParens group
+  -- putStrLn "vvvv"
+  -- putStrLn $ showElem grp
+  -- putStrLn "^^^^"
 
   return $ SourceInfo { si_annotations     = ans
                       , si_parsed_source   = src'
@@ -155,6 +160,12 @@ handleModuleWith get path = do
     -- , si_internals_ = (rm, hsc_env)
                       }
  where
+  -- To show operators fixity in renamed ast
+  addParens :: HsExpr GhcRn -> HsExpr GhcRn
+  addParens e@OpApp{}  = HsPar noExt (noLoc e)
+  addParens e@NegApp{} = HsPar noExt (noLoc e)
+  addParens x          = x
+
   collectLocatedRenamedNames :: HsGroup GhcRn -> [Located Name]
   collectLocatedRenamedNames = collect varName
 
