@@ -186,7 +186,7 @@ transformStringAndChars freeName src =
   --   . apply (transformString' freeName)
   --   -- . apply transformChar
   let result = applyM transformCharM src >>= applyM (transformStringM freeName)
-  in addIfChanged result2 $ fromChanged result2
+  in addIfChanged result $ fromChanged result
  where
   addIfChanged result
     | isChanged result
