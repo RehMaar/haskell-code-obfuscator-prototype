@@ -5,7 +5,9 @@ unreadable for humans.
 
 TODO:
 - [x] Obfuscate identifiers.
-- [*] Obfuscate code structure
+- [ ] Obfuscate code structure
+- [ ] Support more expressions and declaration types.
+- [ ] Change annotations when changing AST.
 - [ ] Good tests.
 - [ ] Good project description.
 - [ ] Support GHC options.
