@@ -63,7 +63,7 @@ generateObfuscatedNamesOld ns = zip ns $ generateObfuscatedNames' 1 ns
         -- gen n _ = concatMap show $ take n [n..]
             gen n _ = 'a' : show n -- take n ['a', 'a' ..]
 
--- generateObfuscatedNamesRandom :: StdGen -> [Char] -> [String] -> (StdGen, [(String, String)])
+generateObfuscatedNamesRandom :: StdGen -> [Char] -> [String] -> (StdGen, [(String, String)])
 generateObfuscatedNamesRandom gen pull names =
   fst <$>
   foldr (\n (gen, (rs, names)) ->
@@ -182,20 +182,23 @@ transformDoToLam x = x
 transformStringAndChars
   :: String -> Located (HsModule GhcPs) -> Located (HsModule GhcPs)
 transformStringAndChars freeName src =
-  -- fmap (addDeclWithSig decl sig)
-  --   . apply (transformString' freeName)
-  --   -- . apply transformChar
-  let result = applyM transformCharM src >>= applyM (transformStringM freeName)
-  in addIfChanged result $ fromChanged result
+  addIfChanged $ do
+  src <- applyButM stopTransformString (transformStringM freeName) src
+  applyButM stopTransformString transformCharM src
  where
   addIfChanged result
     | isChanged result
-    = fmap (addDeclWithSig decl sig)
+    = fmap (addDeclWithSig decl sig) $ fromChanged result
     | otherwise
-    = id
+    = fromChanged result
   decl = createDecl freeName "toEnum"
-  sig =
-    SG.typeSig (fromString freeName) (createVar "Int" SG.--> createVar "Char")
+  sig = SG.typeSig (fromString freeName) (createVar "Int" SG.--> createVar "Char")
+
+  -- This approach doesn't work as intended for some reason!
+  -- transformString :: Data a => a -> Changed a
+  -- transformString = return `extM`
+  --                   transformCharM `extM`
+  --                   transformStringM freeName
 
   -- 'c' -> (toChar n)
   transformCharM :: HsExpr GhcPs -> Changed (HsExpr GhcPs)
@@ -203,14 +206,32 @@ transformStringAndChars freeName src =
     changed $ createVar freeName SG.@@ SG.int (toInteger $ fromEnum chr)
   transformCharM x = unchanged x
 
-  -- "str" -> [chr1, chr2, chr3]
-  --       -> (map toChar [int1, int2, int3])
+  --
+  -- TODO:
+  --  1. `map` may be hidden!
+  --  2. Need to obfuscate `map` also!
+  --
+  -- Example:
+  --   "str" -> [chr1, chr2, chr3]
+  --         -> (map toChar [int1, int2, int3])
   transformStringM :: String -> HsExpr GhcPs -> Changed (HsExpr GhcPs)
   transformStringM freeName e@(HsLit _ (HsString _ str)) =
-    let lst  = stringToList (GHC.unpackFS str)
-        lst' = listToHsList lst
-    in changed $ SG.par $ (SG.var (fromString "map") SG.@@ SG.var (fromString freeName)) SG.@@ lst'
+    let lst  = listToHsList $ stringToList (GHC.unpackFS str)
+        fn   = SG.var (fromString "map") SG.@@ SG.var (fromString freeName)
+    in  changed $ SG.par $ fn SG.@@ lst
   transformStringM _ x = unchanged x
+
+  stopTransformString :: GenericQ Bool
+  stopTransformString = const False `extQ`
+                        stopTransformStringOverLit `extQ`
+                        stopTransformStringSyntaxExpr
+
+  stopTransformStringSyntaxExpr  :: SyntaxExpr GhcPs -> Bool
+  stopTransformStringSyntaxExpr _ = True
+
+  stopTransformStringOverLit :: HsOverLit GhcPs -> Bool
+  stopTransformStringOverLit OverLit{} = True
+  stopTransformStringOverLit _         = False
 
   listToHsList :: [Int] -> HsExpr GhcPs
   listToHsList = SG.list . map (SG.int . toInteger)

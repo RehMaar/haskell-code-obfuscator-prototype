@@ -1,14 +1,15 @@
-{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TupleSections, RankNTypes #-}
 module Transform.Query (
     -- Queries to collect some info into a list.
     collect, collectBut, collectBut',
     -- Queries to apply changes to a data structre.
-    apply, applyBut, applyTopDown, applyM,
+    apply, applyBut, applyTopDown, applyM, applyButM,
     -- A monad to track if changes were applied.
     Changed, isChanged, fromChanged, unchanged, changed
     ) where
     
 import Data.Generics as SYB
+import Data.Monoid
 import Control.Arrow ((&&&))
 
 -- | Collect information into a list.
@@ -31,18 +32,21 @@ applyTopDown changer = SYB.everywhere' (SYB.mkT changer)
 
 applyM changer = SYB.everywhereM (SYB.mkM changer)
 
-newtype Or = Or Bool deriving (Show)
+applyButM :: (Data a, Monad m, Typeable b) =>
+    GenericQ Bool ->
+    (b -> m b) ->
+     a -> m a
+applyButM stopper changer = everywhereButM stopper (SYB.mkM changer)
+  where
+    everywhereButM :: forall m. Monad m => GenericQ Bool -> GenericM m -> GenericM m
+    everywhereButM q f x
+         | q x = pure x
+         | otherwise = do { x' <- gmapM (everywhereButM q f) x; f x'}
 
-instance Semigroup Or where
-    (Or a) <> (Or b) = Or $ a || b
+type Changed a = (Any, a)
 
-instance Monoid Or where
-    mempty = Or False
-
-type Changed a = (Or, a)
-
-isChanged (Or o, _) = o
+isChanged (Any o, _) = o
 fromChanged (_, a) = a
 
-changed = (Or True, )
-unchanged = (Or False, )
+changed = (Any True, )
+unchanged = (Any False, )
