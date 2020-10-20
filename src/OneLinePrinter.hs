@@ -13,8 +13,10 @@ import qualified Outputable as Out
 import Data.String
 import Data.List
 import Data.Ord (comparing)
+import qualified Data.Map.Strict as Map
 
 import qualified Language.Haskell.GHC.ExactPrint as EP
+import qualified Language.Haskell.GHC.ExactPrint.Types as EP
 
 import Outputable as O
 
@@ -48,7 +50,9 @@ onelineDecls = hsep . separate semi  . map (ol_decl . unLoc)
     ol_decl :: HsDecl GhcPs -> SDoc
     ol_decl (ValD _ bind) = ol_bind bind
     ol_decl s@(SigD _ _) = ppr s
-    ol_decl _ = error "Unsupported type of decl"
+    -- TODO: Take them from annotations?
+    ol_decl (WarningD{}) = text ""
+    ol_decl x = error "Unsupported type of decl"
 
     ol_bind :: HsBind GhcPs -> SDoc
     ol_bind (FunBind _ _ mg _ _) = ol_mg  mg
@@ -149,6 +153,7 @@ onelineDecls = hsep . separate semi  . map (ol_decl . unLoc)
         <+> text "}"
     ol_expr (ExplicitList _ _ es) = lbrack O.<> hsep (punctuate comma (map (ol_expr . unLoc) es)) O.<> rbrack
     -- ol_expr (ExplicitTuple _ arg box) = error "ExplicitTuple: TODO"
+    -- ol_expr (HsOverLit _ (OverLit _ lit wit)) = ppr lit <+> text "{\n" <+> ol_expr wit <+> text "}\n"
     ol_expr e = pprExpr e
 
     ol_expr_do :: HsStmtContext Name -> [LStmt GhcPs (LHsExpr GhcPs)] -> SDoc
@@ -162,7 +167,7 @@ onelineDecls = hsep . separate semi  . map (ol_decl . unLoc)
       | otherwise
       = error "ListComp: badly formed"
 
-    -- Copied from GHC.Hs.Expr (TODO: how to import it?)
+    -- Copied from GHC.Hs.Expr
     ppr_infix_expr :: HsExpr GhcPs -> Maybe SDoc
     ppr_infix_expr (HsVar _ (L _ v))    = Just (pprInfixOcc v)
     ppr_infix_expr (HsConLikeOut _ c)   = Just (pprInfixOcc (conLikeName c))
@@ -171,22 +176,33 @@ onelineDecls = hsep . separate semi  . map (ol_decl . unLoc)
     ppr_infix_expr (HsWrap _ _ e)       = ppr_infix_expr e
     ppr_infix_expr _                    = Nothing
 
+-- | Prints _only_ header comments.
+processHeaderComments ans
+  | Just val <- lookupWith partial $ Map.toList ans
+  = let coms = map (EP.commentContents . fromComment) $ filter isComments $ map fst $ EP.annsDP val
+    in hcat (map text coms)
+  | otherwise
+  = text ""
+  where
+    annConName = EP.CN "HsModule"
+    partial (EP.AnnKey _ m) = m == annConName
 
-oneline :: HsModule GhcPs -> SDoc
-oneline (HsModule mname exports imports decls _ _) =
-    onelineHead   mname exports
+    lookupWith _ [] = Nothing
+    lookupWith f ((k, v):xs)
+      | f k = Just v
+      | otherwise = lookupWith f xs
+
+    isComments (EP.AnnComment _) = True
+    isComments _ = False
+
+    fromComment (EP.AnnComment c) = c
+    fromComment _ = error "fromComment: not a comment"
+
+oneline :: EP.Anns -> HsModule GhcPs -> SDoc
+oneline ans (HsModule mname exports imports decls _ _) =
+    processHeaderComments ans
+    <+> onelineHead   mname exports
     <+> onelineImport imports
     <+> onelineDecls  decls
 
-showOneLine dynFlags mod = showSDocOneLine dynFlags (oneline mod)
-
-ghc path mod = defaultErrorHandler defaultFatalMessager defaultFlushOut $
-  runGhc (Just libdir) getSessionDynFlags
-
-testO path = do
-  Right (ans, src) <- EP.parseModule path
-  let modname = getModuleName $ unLoc src
-  dflags <- ghc path modname
-  let code = showSDocOneLine dflags $ oneline $ unLoc src
-  putStrLn code
-  --writeFile "resources/o.hs" code
+showOneLine dynFlags ans mod = showSDocOneLine dynFlags (oneline ans mod)
