@@ -37,7 +37,7 @@ library:
   source-dirs: src
 
 executables:
-  haskell-code-obfuscator-exe:
+  obfuscate-exe:
     main:                Main.hs
     source-dirs:         app
     ghc-options:
@@ -46,6 +46,7 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - haskell-code-obfuscator
+    - optparse-applicative
 
 tests:
   haskell-code-obfuscator-test:

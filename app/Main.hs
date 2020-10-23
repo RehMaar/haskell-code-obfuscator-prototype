@@ -1,36 +1,93 @@
+{-# LANGUAGE TypeFamilies, DeriveDataTypeable, RankNTypes #-}
 module Main where
-
+    
 import Language.Haskell.GHC.ExactPrint.Parsers
 
-import Outputable
+import qualified Outputable as O
 import SrcLoc
 
 import Control.Arrow
+import System.Environment
 
 import Transform.Obfuscate
 import Source
 import OneLinePrinter
 
-main = putStrLn "Privet"
+import System.Directory (makeAbsolute)
+import Options.Applicative
+
+{-
+
+Options:
+- --ghc-options=GHC-OPTIONS
+- --stack=PROJECT_DIRECTORY
+-}
+
+data ObfTypeFlags
+  = SimpleModuleFlags { ghcOpts :: String }
+  | ProjectModuleFlags { projectWdir :: String }
+  | NoOpts
+  deriving Show
+
+data ObfArgs
+  = ObfArgs
+  { file :: FilePath
+  , flags :: ObfTypeFlags
+  }
+  deriving Show
+
+programInfo :: ParserInfo ObfArgs
+programInfo = info (obfArgs <**> helper) desc
+  where
+    obfArgs = ObfArgs <$> arg <*> flags
+    arg = argument str (metavar "FILE")
+    flags = simpleModuleFlags <|> projectModuleFlags <|> noOpts
+    noOpts = pure NoOpts
+    simpleModuleFlags = SimpleModuleFlags
+      <$> strOption
+          (long "ghc-options"
+           <> metavar "GHC_OPTIONS"
+           <> help "GHC options to compare")
+    projectModuleFlags = ProjectModuleFlags
+      <$> strOption
+          (long "working-dir"
+          <> short 'w'
+          <> metavar "WDIR"
+          <> help "Path to a project directory")
+
+    desc = fullDesc
+         <> progDesc "Prog desc"
+         <> header "obfuscate -- an utility for haskell code obfuscation"
+
+
+main = do
+  flags <- execParser programInfo
+  putStrLn $ show flags
+  handleFlags flags
+  where
+    handleFlags (ObfArgs file (ProjectModuleFlags wdir)) = obfuscateFileInProj wdir file
+    handleFlags (ObfArgs file _) = obfuscateFile file
 
 obfuscateFileInProj = obfuscateCommon . ProjectModule
-
 
 obfuscateFile = obfuscateCommon SimpleModule
 
 obfuscateCommon mod path = do
-  si <- handleModule mod path
-  let (_, src) = obfuscate si
+  absPath <- makeAbsolute path
+  si <- handleModule mod absPath
+  let (ans, src) = obfuscate si
   let dflags = si_dynflags si
-  let code = showSDocOneLine dflags $ oneline $ unLoc src
-  --let code = showSDocUnsafe $ ppr $ si_parsed_source si
+  let code = O.showSDocOneLine dflags $ oneline ans $ unLoc src
   putStrLn code
-  -- Right (ans, src) <- parseModuleFromString path code
-  -- putStrLn $ showSDocDebug dflags $ ppr src
-  -- let newPath = newFileName path
-  -- if newPath == path
-  -- then fail "Unable to generate unique filename"
-  -- else writeFile newPath code
+
+-- For debug
+obfuscateS path = do
+  si <- handleModule SimpleModule path
+  let (_, src) = obfuscateStructure si
+  let dflags = si_dynflags si
+  --let code = showSDocOneLine dflags $ oneline $ unLoc src
+  let code = O.showSDocUnsafe $ O.ppr src
+  putStrLn code
 
 -- better not to use on filenames without '.hs'
 newFileName path = let

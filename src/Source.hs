@@ -208,7 +208,7 @@ getSourceProject wdir path =
                                     }
               setSessionDynFlags dflags2
 
-              liftIO $ putStrLn $ concatMap showPackage $ packageFlags dflags1
+              -- liftIO $ putStrLn $ concatMap showPackage $ packageFlags dflags1
 
               (t, _)  <- loadFile (path, path)
 
@@ -219,12 +219,11 @@ getSourceProject wdir path =
   fromCradle _ (CradleSuccess s) = s
   fromCradle f _                 = f
 
-showPackage (ExposePackage s pa md) = "EP " ++ show s ++ " {" ++ showElem pa ++ "} " ++ showElem md
+-- showPackage (ExposePackage s pa md) = "EP " ++ show s ++ " {" ++ showElem pa ++ "} " ++ showElem md
 
 -- TODO: allow to pass GHC flags
 getSourceSimple path =
   defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
-    absPath <- makeAbsolute path
     runGhc (Just libdir) $ do
       dflags <- getSessionDynFlags
       let dflags1 = dflags `gopt_set` Opt_KeepRawTokenStream
@@ -233,13 +232,13 @@ getSourceSimple path =
                             , ghcMode   = CompManager
                             }
       setSessionDynFlags dflags2
-      target <- guessTarget absPath Nothing
+      target <- guessTarget path Nothing
       setTargets [target]
       load LoadAllTargets
       hsc_env  <- getSession
 
       modGraph <- depanal [] False
-      let modSum = findModSumWithLocation absPath $ mgModSummaries modGraph
+      let modSum = findModSumWithLocation path $ mgModSummaries modGraph
       p <- GHC.parseModule modSum
       t <- typecheckModule p
       return (Just t, dflags, hsc_env)
