@@ -42,7 +42,9 @@ import           Data.String
 import           Data.Char
 import           Control.Arrow                  ( (&&&), first )
 import           System.Random
+import Control.Monad
 import Control.Monad.State
+import Data.Foldable
 
 import           OneLinePrinter
 import           Utils
@@ -143,40 +145,49 @@ applyTransformationCommon applier f = do
 --   do { r1 <- a1; let l1 = s1; r2 <- a2; ... e }
 --    ==>
 --   a1 >>= \r1 -> (\l1 -> a2 >>= \r2 -> (... \rn -> e)) s1
-transformDoToLam :: HsExpr GhcPs -> HsExpr GhcPs
-transformDoToLam (HsDo _ DoExpr (L _ es)) = foldToExpr es
+transformDoToLam :: Obfuscate ()
+transformDoToLam = do
+  src <- sourceMod <$> get
+  src <- applyM transform src
+  modify (\ctx -> ctx { sourceMod = src })
  where
-  foldToExpr :: [ExprLStmt GhcPs] -> HsExpr GhcPs
+  transform :: HsExpr GhcPs -> Obfuscate (HsExpr GhcPs)
+  transform (HsDo _ DoExpr (L _ es)) = fromJust <$> foldrM update Nothing es
+  transform x = return x
+
+  update :: ExprLStmt GhcPs -> Maybe (HsExpr GhcPs) -> Obfuscate (Maybe (HsExpr GhcPs))
+  update (L _ stmt) (Just k) = Just <$> stmtToExpr stmt k
+  update (L _ stmt) Nothing  = Just <$> lastStmt stmt
+
+{-  foldToExpr :: [ExprLStmt GhcPs] -> HsExpr GhcPs
   foldToExpr [e     ] = lastStmt (unLoc e)
-  foldToExpr (e : es) = stmtToExpr (unLoc e) (foldToExpr es)
+  foldToExpr (e : es) = stmtToExpr (unLoc e) (foldToExpr es)-}
 
   -- body >>= \pat -> k
   bind body pat k = SG.op body (fromString ">>=") (SG.lambda pat k)
 
-  stmtToExpr :: ExprStmt GhcPs -> HsExpr GhcPs -> HsExpr GhcPs
+  stmtToExpr :: ExprStmt GhcPs -> HsExpr GhcPs -> Obfuscate (HsExpr GhcPs)
   -- pat <- body ==> body >>= \pat -> {}
-  stmtToExpr (BindStmt _ pat body _ _) k = bind (unLoc body) [pat] k
+  stmtToExpr (BindStmt _ pat body _ _) k = return $ bind (unLoc body) [pat] k
   -- let pat = body ==> (\pat -> {} ) body
   -- let fun => (\funname -> {}) (let fun in funname)
   stmtToExpr (LetStmt _ (L _ lbs)    ) k = foldLets k lbs
   -- body => body >>= \_ -> {}
-  stmtToExpr (BodyStmt _ body _ _    ) k = bind (unLoc body) [SG.wildP] k
+  stmtToExpr (BodyStmt _ body _ _    ) k = return $ bind (unLoc body) [SG.wildP] k
 
   stmtToExpr (LastStmt _ body _ _    ) k = error "What case?"
 
-  lastStmt (LastStmt _ body _ _) = unLoc body
-  lastStmt (BodyStmt _ body _ _) = unLoc body
+  lastStmt (LastStmt _ body _ _) = return $ unLoc body
+  lastStmt (BodyStmt _ body _ _) = return $ unLoc body
 
   foldLets k (HsValBinds _ (ValBinds _ binds _)) =
-    foldLets' k (map unLoc $ GHC.bagToList binds)
-
-  foldLets' k []       = k
-  foldLets' k (b : bs) = foldLets' (bindToLamOrLet k b) bs
+    foldrM bindToLamOrLet k (map unLoc $ GHC.bagToList binds)
 
   -- Case: let funname = fun in funanme
   --      (\funname -> {}) (let fun in funname)
-  bindToLamOrLet :: HsExpr GhcPs -> HsBind GhcPs -> HsExpr GhcPs
-  bindToLamOrLet k fb@FunBind { fun_id = L _ funname } =
+  -- bindToLamOrLet :: HsExpr GhcPs -> HsBind GhcPs -> Obfuscate (HsExpr GhcPs)
+  bindToLamOrLet fb@FunBind { fun_id = L _ funname } k =
+    return $
     let
       lbind =
         noLoc $ HsValBinds noExt $ ValBinds noExt (GHC.listToBag [noLoc fb]) []
@@ -184,10 +195,45 @@ transformDoToLam (HsDo _ DoExpr (L _ es)) = foldToExpr es
     in
       SG.lambda [pat] k
         SG.@@ HsLet noExt lbind (noLoc $ HsVar noExt $ noLoc funname)
-  -- Case: let (Ctr args) = body => (\(Ctr args) -> {}) body
-  bindToLamOrLet k PatBind { pat_lhs = pat, pat_rhs = body } = error $ "Unable to handle PatBind: " ++ (showElem pat)
-      -- SG.lambda [pat] k SG.@@ body
-transformDoToLam x = x
+  -- Case: let (Ctr args) = body => (\(Ctr args) -> {}) (let newname = body in newname)
+  --
+  -- Problem:
+  -- This example is a correct haskell code (but it loops):
+  --   Just a | a > 0 = 10
+  --          | otherwise = 20
+  --
+  -- But it translates into:
+  -- (\(Just a) -> ..) (let <freshName> | a > 0 = 10 | otherwise = 20 in <freshName>)
+  -- And this translation can't be compiled.
+  --
+  -- Just for now we (I) support only such behaviour.
+  --
+  bindToLamOrLet PatBind { pat_lhs = pat, pat_rhs = body } k = do
+     freshName <- getNextFreshName
+     let funName = GHC.mkRdrUnqual $ GHC.mkVarOcc freshName :: RdrName
+     let body' = noLoc $ createFunBind funName [] body :: LHsBindLR GhcPs GhcPs
+     let bind = noLoc $ HsValBinds noExt $ ValBinds noExt (GHC.listToBag [body']) []
+     let letBind = HsLet noExt bind (noLoc $ HsVar noExt $ noLoc funName)
+     return $ SG.lambda [pat] k SG.@@ letBind
+
+  createFunBind name pats grhss
+    = FunBind
+    { fun_ext = noExt
+    , fun_id = noLoc name
+    , fun_matches = createMatchGroup name pats grhss
+    , fun_co_fn = WpHole
+    , fun_tick = []}
+  createMatchGroup name pats grhss
+    = MG
+    { mg_ext = noExt
+    , mg_alts = noLoc [noLoc $ createMatch name pats grhss]
+    , mg_origin = GHC.Generated }
+  createMatch name pats grhss
+    = Match
+    { m_ext = noExt
+    , m_ctxt = FunRhs { mc_fun = noLoc name, mc_fixity = GHC.Prefix, mc_strictness = NoSrcStrict}
+    , m_pats = pats
+    , m_grhss = grhss}
 
 -- | Transform strings and chars.
 --
@@ -200,8 +246,8 @@ transformStringAndChars :: Obfuscate ()
 transformStringAndChars = do
   ctx <- get
   let src = sourceMod ctx
-  freeName <- getNextFreshName
-  modify (\ctx -> ctx { sourceMod = transform freeName src })
+  freeNameToChar <- getNextFreshName
+  modify (\ctx -> ctx { sourceMod = transform freeNameToChar src })
  where
   transform :: String -> ParsedSource -> ParsedSource
   transform freeName src = addIfChanged freeName $ do
@@ -277,10 +323,6 @@ transformOpToApp e@(OpApp _ left op right) = app
   par = HsPar noExt
 
   help' :: LHsExpr GhcPs -> LHsExpr GhcPs
-  -- help' e@(L _ (HsPar{})) = e
-  -- help' e@(L _ (HsVar{})) = e
-  -- help' e@(L _ (HsLit{})) = e
-  -- help' e@(L _ (HsOverLit{})) = e
   help' x = L (getLoc x) $ HsPar noExt x
 transformOpToApp x = x
 
@@ -331,8 +373,8 @@ obfuscateNames = do
 obfuscateStructure :: Obfuscate ParsedSource
 obfuscateStructure = do
   transformStringAndChars
+  transformDoToLam
   applyTransformation addParens
-  applyTransformation transformDoToLam
   applyTransformationCommon applyTopDown transformOpToApp
   applyTransformation transformIfCase
   applyTransformation transformMultiArgLam
