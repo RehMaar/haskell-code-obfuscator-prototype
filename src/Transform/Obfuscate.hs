@@ -1,5 +1,5 @@
 {-# LANGUAGE TypeFamilies, FlexibleInstances, TupleSections,
-             OverloadedStrings, DeriveFunctor
+             OverloadedStrings, DeriveFunctor, RankNTypes
 #-}
 
 module Transform.Obfuscate where
@@ -42,6 +42,7 @@ import           Data.String
 import           Data.Char
 import           Control.Arrow                  ( (&&&), first )
 import           System.Random
+import Control.Monad.State
 
 import           OneLinePrinter
 import           Utils
@@ -55,68 +56,81 @@ import           Debug.Trace
 
 import Data.Generics
 
-generateObfuscatedNamesOld ns = zip ns $ generateObfuscatedNames' 1 ns
+data ObfuscateContext
+  = OC
+  { transformCtx :: TransformContext
+  , sourceMod :: ParsedSource
+  , symbols :: [Char]
+  , rangeSymbols :: (Int, Int)
+  , rangeNameLen :: (Int, Int)
+  , generator :: StdGen
+  , usedSymbols :: [String]
+  }
+
+type Obfuscate a = State ObfuscateContext a
+
+evalObfuscate f seed = evalState f . initObfuscate seed
+
+initObfuscateCommon symbols range seed (SourceInfo _ src rvs _) = let
+    tctx = initTransformContext rvs (unLoc src)
+  in OC tctx src symbols (0, pred $ length symbols) range (mkStdGen seed) []
+
+initObfuscate = initObfuscateCommon defaultSymbols defaultRange
   where
-    generateObfuscatedNames' :: Int -> [String] -> [String]
-    generateObfuscatedNames' n = zipWith (\n name -> gen n name) [n ..]
-      where
-        -- gen n _ = concatMap show $ take n [n..]
-            gen n _ = 'a' : show n -- take n ['a', 'a' ..]
+    defaultSymbols = ['A'..'Z'] ++ ['a'..'z']
+    defaultRange = (1, 10)
 
-generateObfuscatedNamesRandom :: StdGen -> [Char] -> [String] -> (StdGen, [(String, String)])
-generateObfuscatedNamesRandom gen pull names =
-  fst <$>
-  foldr (\n (gen, (rs, names)) ->
-           let (gen1, newName) = generateFreshName pull gen names
-           in (gen1, ((n, newName) : rs, newName : names)))
-        (gen, ([], names))
-        names
-
-pullOfSymbols :: [Char]
-pullOfSymbols = ['A'..'Z'] ++ ['a'..'z']
--- range = (0, pred $ length pullOfSymbols)
--- rangeWordLen = (1, 10 :: Int)
-
-generateName :: [Char] -> StdGen -> Int -> (StdGen, String)
-generateName _ gen 0 = (gen, [])
-generateName pull gen wordLen =
-  let (symbolNo, gen') = randomR range gen
-  in ((pullOfSymbols !! symbolNo):) <$> generateName pull gen' (pred wordLen)
-  where range = (0, pred $ length pull)
-
-tryName names newName = newName `notElem` names
-
-generateFreshName :: [Char] -> StdGen -> [String] -> (StdGen, String)
-generateFreshName pull gen names =
-  let (wordLen, gen1) = randomR (1, 10 :: Int) gen
-      (gen2, (s:newName')) = generateName pull gen1 wordLen
-      newName = toLower s : newName'
-  in if tryName names newName
-     then (gen2, newName)
-     else generateFreshName pull gen2 names
+getNextFreshName :: Obfuscate String
+getNextFreshName = do
+   wordLen <- getWordLen
+   name <- getName wordLen
+   flag <- isUsed name
+   if flag
+   then getNextFreshName
+   else return name
+  where
+    isUsed :: String -> Obfuscate Bool
+    isUsed name = do
+      used <- usedSymbols <$> get
+      return $ name `elem` used
 
 
--- | Transform operators to application form.
---
--- Example: x + y -> (+) x y
---
--- TODO: need correct locations?
-transformOpToApp :: HsExpr GhcPs -> HsExpr GhcPs
-transformOpToApp e@(OpApp _ left op right) = app
-  (noLoc $ par $ noLoc $ app op $ noLoc $ par left)
-  (noLoc $ par right)
- where
-  app = HsApp noExt
+    getName :: Int -> Obfuscate String
+    getName 0 = return ""
+    getName wordLen = do
+      symb <- getSymbol
+      rest <- getName (pred wordLen)
+      return (symb:rest)
 
-  par = HsPar noExt
+    getSymbol = do
+      ctx <- get
+      idx <- getInt (rangeSymbols ctx)
+      return $ symbols ctx !! idx
 
-  help' :: LHsExpr GhcPs -> LHsExpr GhcPs
-  -- help' e@(L _ (HsPar{})) = e
-  -- help' e@(L _ (HsVar{})) = e
-  -- help' e@(L _ (HsLit{})) = e
-  -- help' e@(L _ (HsOverLit{})) = e
-  help' x = L (getLoc x) $ HsPar noExt x
-transformOpToApp x = x
+
+    getWordLen :: Obfuscate Int
+    getWordLen = do
+      range <- rangeNameLen <$> get
+      getInt range
+
+    getInt :: (Int, Int) -> Obfuscate Int
+    getInt range = do
+      gen <- generator <$> get
+      let (int, gen') = randomR range gen
+      modify (\ctx -> ctx { generator = gen' })
+      return int
+
+applyTransformation :: Typeable a => (a -> a) -> Obfuscate ()
+applyTransformation = applyTransformationCommon apply
+
+applyTransformationCommon
+  :: (Typeable a)
+  => (forall a b . (Data b, Typeable a) => (a -> a) -> b -> b)
+  -> (a -> a)
+  -> Obfuscate ()
+applyTransformationCommon applier f = do
+  src <- sourceMod <$> get
+  modify (\ctx -> ctx { sourceMod = applier f src })
 
 -- | Transform do-notation into lambda form.
 --
@@ -160,6 +174,7 @@ transformDoToLam (HsDo _ DoExpr (L _ es)) = foldToExpr es
   foldLets' k (b : bs) = foldLets' (bindToLamOrLet k b) bs
 
   -- Case: let funname = fun in funanme
+  --      (\funname -> {}) (let fun in funname)
   bindToLamOrLet :: HsExpr GhcPs -> HsBind GhcPs -> HsExpr GhcPs
   bindToLamOrLet k fb@FunBind { fun_id = L _ funname } =
     let
@@ -169,7 +184,9 @@ transformDoToLam (HsDo _ DoExpr (L _ es)) = foldToExpr es
     in
       SG.lambda [pat] k
         SG.@@ HsLet noExt lbind (noLoc $ HsVar noExt $ noLoc funname)
-  bindToLamOrLet k PatBind { pat_lhs = pat } = error "Pat"
+  -- Case: let (Ctr args) = body => (\(Ctr args) -> {}) body
+  bindToLamOrLet k PatBind { pat_lhs = pat, pat_rhs = body } = error $ "Unable to handle PatBind: " ++ (showElem pat)
+      -- SG.lambda [pat] k SG.@@ body
 transformDoToLam x = x
 
 -- | Transform strings and chars.
@@ -179,20 +196,26 @@ transformDoToLam x = x
 -- Maybe, there's better solutions.
 --
 -- TODO: bug with overloaded literals
-transformStringAndChars
-  :: String -> Located (HsModule GhcPs) -> Located (HsModule GhcPs)
-transformStringAndChars freeName src =
-  addIfChanged $ do
-  src <- applyButM stopTransformString (transformStringM freeName) src
-  applyButM stopTransformString transformCharM src
+transformStringAndChars :: Obfuscate ()
+transformStringAndChars = do
+  ctx <- get
+  let src = sourceMod ctx
+  freeName <- getNextFreshName
+  modify (\ctx -> ctx { sourceMod = transform freeName src })
  where
-  addIfChanged result
+  transform :: String -> ParsedSource -> ParsedSource
+  transform freeName src = addIfChanged freeName $ do
+    src <- applyButM stopTransformString (transformStringM freeName) src
+    applyButM stopTransformString (transformCharM freeName) src
+
+  addIfChanged freeName result
     | isChanged result
     = fmap (addDeclWithSig decl sig) $ fromChanged result
     | otherwise
     = fromChanged result
-  decl = createDecl freeName "toEnum"
-  sig = SG.typeSig (fromString freeName) (createVar "Int" SG.--> createVar "Char")
+    where
+      decl = createDecl freeName "toEnum"
+      sig = SG.typeSig (fromString freeName) (createVar "Int" SG.--> createVar "Char")
 
   -- This approach doesn't work as intended for some reason!
   -- transformString :: Data a => a -> Changed a
@@ -201,10 +224,10 @@ transformStringAndChars freeName src =
   --                   transformStringM freeName
 
   -- 'c' -> (toChar n)
-  transformCharM :: HsExpr GhcPs -> Changed (HsExpr GhcPs)
-  transformCharM (HsLit _ (HsChar _ chr)) =
+  transformCharM :: String -> HsExpr GhcPs -> Changed (HsExpr GhcPs)
+  transformCharM freeName (HsLit _ (HsChar _ chr)) =
     changed $ createVar freeName SG.@@ SG.int (toInteger $ fromEnum chr)
-  transformCharM x = unchanged x
+  transformCharM _ x = unchanged x
 
   --
   -- TODO:
@@ -239,6 +262,28 @@ transformStringAndChars freeName src =
   stringToList ""       = []
   stringToList (x : xs) = fromEnum x : stringToList xs
 
+-- | Transform operators to application form.
+--
+-- Example: x + y -> (+) x y
+--
+-- TODO: need correct locations?
+transformOpToApp :: HsExpr GhcPs -> HsExpr GhcPs
+transformOpToApp e@(OpApp _ left op right) = app
+  (noLoc $ par $ noLoc $ app op $ noLoc $ par left)
+  (noLoc $ par right)
+ where
+  app = HsApp noExt
+
+  par = HsPar noExt
+
+  help' :: LHsExpr GhcPs -> LHsExpr GhcPs
+  -- help' e@(L _ (HsPar{})) = e
+  -- help' e@(L _ (HsVar{})) = e
+  -- help' e@(L _ (HsLit{})) = e
+  -- help' e@(L _ (HsOverLit{})) = e
+  help' x = L (getLoc x) $ HsPar noExt x
+transformOpToApp x = x
+
 -- | Transform if-expression to case.
 transformIfCase :: HsExpr GhcPs -> HsExpr GhcPs
 transformIfCase (HsIf _ _ (L _ conde) (L _ ife) (L _ thene)) =
@@ -264,51 +309,40 @@ addParens x          = x
 instance Show (GenLocated SrcSpan RdrName) where
   show (L s r) = rdrName2String r
 
-obfuscateNames :: SourceInfo -> (Anns, ParsedSource)
-obfuscateNames (SourceInfo ans src rvs _) =
-  let mod       = unLoc src
-      modName   = fromMaybe "Main" $ getModuleName mod
+obfuscateNames :: Obfuscate ParsedSource
+obfuscateNames = do
+  ctx <- get
+  renamings <- generateRenamings
+  let src1 = rename (transformCtx ctx) renamings (sourceMod ctx)
+  return $ renameImportedSymbols (transformCtx ctx) renamings src1
+  where
+    generateRenamings' :: [String] -> Obfuscate [(String, String)]
+    generateRenamings' [] = return []
+    generateRenamings' (n:ns) = do
+      name <- getNextFreshName
+      rs   <- generateRenamings' ns
+      return ((n, name):rs)
 
-      ctx        = initTransformContext modName rvs $ unLoc src
-      gen        = mkStdGen 13
-      (gen2, renamings) = generateObfuscatedNamesRandom gen pullOfSymbols (tcNames ctx)
-      -- renamings = generateObfuscatedNamesOld (tcNames ctx)
-      (ans1, src1) = rename ctx renamings ans src
-      (ans2, src2) = renameImportedSymbols ctx renamings ans src1
-  in (ans2, src2)
+    generateRenamings :: Obfuscate [(String, String)]
+    generateRenamings = do
+      rvs <- tcNames <$> transformCtx <$> get
+      generateRenamings' rvs
 
-obfuscateStructure :: SourceInfo -> (Anns, ParsedSource)
-obfuscateStructure (SourceInfo ans src rvs _) =
-    (ans,) $
-    apply addParens $
-    -- transformStringAndChars "toChar" $
-    apply transformDoToLam           $
-    applyTopDown transformOpToApp $
-    apply transformIfCase $
-    apply transformMultiArgLam $
-    src
+obfuscateStructure :: Obfuscate ParsedSource
+obfuscateStructure = do
+  transformStringAndChars
+  applyTransformation addParens
+  applyTransformation transformDoToLam
+  applyTransformationCommon applyTopDown transformOpToApp
+  applyTransformation transformIfCase
+  applyTransformation transformMultiArgLam
+  sourceMod <$> get
 
-obfuscate :: SourceInfo -> (Anns, ParsedSource)
-obfuscate (SourceInfo ans src rvs _) =
-  let mod       = unLoc src
-      modName   = fromMaybe "Main" $ getModuleName mod
+obfuscate = obfuscateWithSeed 0
 
-      -- TODO: maybe some transformations will need transformation context
-      ctx        = initTransformContext modName rvs $ unLoc src
-      gen        = mkStdGen 13
-      (gen2, renamings) = generateObfuscatedNamesRandom gen pullOfSymbols (tcNames ctx)
-      -- renamings = generateObfuscatedNamesOld (tcNames ctx)
-      -- Rename
-      (ans1, src1) = rename ctx renamings ans src
-      (ans2, src2) = renameImportedSymbols ctx renamings ans src1
-      -- Possibly, add new declaration.
-      (gen3, newDeclName) = generateFreshName pullOfSymbols gen2 (uncurry (++) $ unzip renamings)
-      src3                = transformStringAndChars newDeclName src2
-    in
-    (ans2,) $
-    apply addParens                  $
-    apply transformDoToLam           $
-    applyTopDown transformOpToApp $
-    apply transformIfCase $
-    apply transformMultiArgLam $
-    src3
+obfuscateWithSeed :: Int -> SourceInfo -> ParsedSource
+obfuscateWithSeed = evalObfuscate obfuscate''
+  where
+    obfuscate'' = do
+      obfuscateNames
+      obfuscateStructure

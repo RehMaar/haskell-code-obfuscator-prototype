@@ -1,8 +1,8 @@
 module Source
-  -- ( SourceInfo(..)
-  -- , ModuleType(..)
-  -- , handleModule
-  -- )
+  ( SourceInfo(..)
+  , ModuleType(..)
+  , handleModule
+  )
 where
 
 import qualified GHC.LanguageExtensions as LangExt
@@ -117,18 +117,21 @@ getFixities hsc_env = do
   getFixities' mif = zip (map GHC.mi_module mif) (map GHC.mi_fixities mif)
 
 
-data ModuleType = SimpleModule | ProjectModule { mt_wdir :: FilePath }
+data ModuleType
+  = SimpleModule { mt_opts :: [String] }
+  | ProjectModule { mt_wdir :: FilePath }
 
-data SourceInfo = SourceInfo {
-    si_annotations :: Anns,
-    si_parsed_source :: ParsedSource,
-    si_qualified_names :: [Located Name],
-    si_dynflags :: DynFlags
-    -- si_internals_ :: Maybe (TypecheckedModule, HscEnv)
-        }
+data SourceInfo
+  = SourceInfo
+  { si_annotations :: Anns
+  , si_parsed_source :: ParsedSource
+  , si_qualified_names :: [Located Name]
+  , si_dynflags :: DynFlags
+    --, si_internals_ :: Maybe (TypecheckedModule, HscEnv)
+  }
 
 -- handleModule :: ModuleType -> FilePath -> (Ans, Src, Rvs, DFlags)
-handleModule SimpleModule         = handleModuleWith getSourceSimple
+handleModule (SimpleModule opts)  = handleModuleWith (getSourceSimple opts)
 handleModule (ProjectModule wdir) = handleModuleWith (getSourceProject wdir)
 
 
@@ -183,8 +186,6 @@ getSourceProject wdir path =
       --       Maybe possible to use implicit-hie-cradle package?
         cradle <- Bios.loadCradle "./hie.yaml"
         copt   <- Bios.getCompilerOptions path cradle
-        -- putStrLn $ show copt
-        -- putStrLn "===="
         case copt of
           CradleNone -> fail "CradleNone: nani?"
           CradleFail CradleError { cradleErrorStderr = msgs } ->
@@ -192,8 +193,6 @@ getSourceProject wdir path =
           CradleSuccess opt -> do
             libdir <- fromCradle (fail "Unable to get runtime libdir")
               <$> Bios.getRuntimeGhcLibDir cradle
-            -- putStrLn $ "Libdir: " ++ libdir
-            -- putStrLn $ "Opts: " ++ show opt
             runGhc (Just libdir) $ do
               -- TODO: initSession creates cache directories for IDE purposes,
               --       need to init without it.
@@ -208,8 +207,6 @@ getSourceProject wdir path =
                                     }
               setSessionDynFlags dflags2
 
-              -- liftIO $ putStrLn $ concatMap showPackage $ packageFlags dflags1
-
               (t, _)  <- loadFile (path, path)
 
               dflags  <- getSessionDynFlags
@@ -219,13 +216,11 @@ getSourceProject wdir path =
   fromCradle _ (CradleSuccess s) = s
   fromCradle f _                 = f
 
--- showPackage (ExposePackage s pa md) = "EP " ++ show s ++ " {" ++ showElem pa ++ "} " ++ showElem md
-
--- TODO: allow to pass GHC flags
-getSourceSimple path =
+getSourceSimple flags path =
   defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
     runGhc (Just libdir) $ do
       dflags <- getSessionDynFlags
+      parseDynamicFlags dflags $ map noLoc flags
       let dflags1 = dflags `gopt_set` Opt_KeepRawTokenStream
       let dflags2 = dflags1 { hscTarget = HscInterpreted
                             , ghcLink   = LinkInMemory

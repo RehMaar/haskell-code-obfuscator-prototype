@@ -5,6 +5,7 @@ import Language.Haskell.GHC.ExactPrint.Parsers
 
 import qualified Outputable as O
 import SrcLoc
+import qualified Util
 
 import Control.Arrow
 import System.Environment
@@ -12,6 +13,7 @@ import System.Environment
 import Transform.Obfuscate
 import Source
 import OneLinePrinter
+import Utils
 
 import System.Directory (makeAbsolute)
 import Options.Applicative
@@ -62,32 +64,36 @@ programInfo = info (obfArgs <**> helper) desc
 
 main = do
   flags <- execParser programInfo
-  putStrLn $ show flags
+  putStrLnErr $ show flags
   handleFlags flags
   where
     handleFlags (ObfArgs file (ProjectModuleFlags wdir)) = obfuscateFileInProj wdir file
-    handleFlags (ObfArgs file _) = obfuscateFile file
+    handleFlags (ObfArgs file (SimpleModuleFlags opts)) = do
+        case Util.toArgs opts of
+          Right args -> obfuscateFile args  file
+          Left _ -> putStrLnErr "error: Unable to parse ghc options"
+    handleFlags (ObfArgs file NoOpts) = obfuscateFile [] file
 
 obfuscateFileInProj = obfuscateCommon . ProjectModule
 
-obfuscateFile = obfuscateCommon SimpleModule
+obfuscateFile = obfuscateCommon . SimpleModule
 
 obfuscateCommon mod path = do
   absPath <- makeAbsolute path
   si <- handleModule mod absPath
-  let (ans, src) = obfuscate si
+  let src = obfuscate si
   let dflags = si_dynflags si
-  let code = O.showSDocOneLine dflags $ oneline ans $ unLoc src
+  let code = O.showSDocOneLine dflags $ oneline (si_annotations si) $ unLoc src
   putStrLn code
 
--- For debug
+{--- For debug
 obfuscateS path = do
-  si <- handleModule SimpleModule path
+  si <- handleModule (SimpleModule []) path
   let (_, src) = obfuscateStructure si
   let dflags = si_dynflags si
   --let code = showSDocOneLine dflags $ oneline $ unLoc src
   let code = O.showSDocUnsafe $ O.ppr src
-  putStrLn code
+  putStrLn code-}
 
 -- better not to use on filenames without '.hs'
 newFileName path = let

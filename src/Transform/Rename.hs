@@ -68,9 +68,8 @@ lookupVar = lookupGen (\var name -> (lcloc name == lcloc var) &&
                                     (varname (lcelem var) == lcelem name))id
 lookupDef = lookupGen (\def name -> name == tldefname def) id
 
-rename :: TransformContext -> [(String, String)] -> Anns -> ParsedSource -> (Anns, ParsedSource)
-rename octx renamings ans mod = do
-  (ans,) $
+rename :: TransformContext -> [(String, String)] -> ParsedSource -> ParsedSource
+rename octx renamings mod =
     apply changerSig $
     apply changerBind $
     apply changerMatch $
@@ -137,12 +136,12 @@ rename octx renamings ans mod = do
      = lookup name' renamings
      | otherwise = Nothing
 
-renameImportedSymbols :: TransformContext -> [(String, String)] -> Anns -> ParsedSource -> (Anns, ParsedSource)
-renameImportedSymbols octx renamings ans src = let
+renameImportedSymbols :: TransformContext -> [(String, String)] -> ParsedSource -> ParsedSource
+renameImportedSymbols octx renamings src = let
     src' = apply changerImported src
     decls = uncurry newDecl <$> importedRenamings
     src'' = foldl (\s decl -> addDecl decl <$> s) src' decls
-    in (ans, src'')
+    in src''
   where
     importedSymbols :: [Loc Var]
     importedSymbols = filter ((\q -> isJust q && fromJust q /= tcModName octx) . varqual . lcelem) $ tcVars octx

@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts, TypeFamilies #-}
 module OneLinePrinter
   (oneline, showOneLine)
   where
@@ -50,9 +51,10 @@ onelineDecls = hsep . separate semi  . map (ol_decl . unLoc)
     ol_decl :: HsDecl GhcPs -> SDoc
     ol_decl (ValD _ bind) = ol_bind bind
     ol_decl s@(SigD _ _) = ppr s
+    ol_decl (TyClD _ d) = ppr d
     -- TODO: Take them from annotations?
     ol_decl (WarningD{}) = text ""
-    ol_decl x = error "Unsupported type of decl"
+    ol_decl x = error "Unsupported decl"
 
     ol_bind :: HsBind GhcPs -> SDoc
     ol_bind (FunBind _ _ mg _ _) = ol_mg  mg

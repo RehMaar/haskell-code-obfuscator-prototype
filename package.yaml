@@ -32,6 +32,7 @@ dependencies:
 - hslogger
 - directory
 - random
+- mtl
 
 library:
   source-dirs: src

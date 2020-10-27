@@ -22,6 +22,7 @@ collectBut' f = SYB.everythingBut (++) (([], False) `SYB.mkQ` f)
 collectBut f p = collectBut' (f &&& p)
 
 -- | Apply a change to a parsed tree.
+apply :: (Data a, Typeable b) => (b -> b) -> a -> a
 apply changer = SYB.everywhere (SYB.mkT changer)
 
 -- | Apply a change to a parsed tree with a stop condition.

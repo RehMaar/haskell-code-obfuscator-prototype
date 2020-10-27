@@ -43,19 +43,6 @@ data Loc a = Loc { lcloc :: SrcSpan, lcelem :: a }
 
 toLoc a = Loc (getLoc a) (unLoc a)
 
-data TransformContext = TC {
-      tcModName :: String
-    , tcTopLevelDefs :: [Loc String]
-    , tcArgs :: [Loc String]
-    , tcInnerDefs :: [Loc Def]
-    , tcVars :: [Loc Var]
-    -- , tcRenamings :: [(String, String)]
-    , tcNames :: [String]
-    , tcExported :: [String]
-    , tcInternal_ :: [TopLevelDef]
-  }
-  deriving Show
-
 namesToVars :: [Located Name] -> [Loc Var]
 namesToVars = map nameToVar . filter (GHC.isGoodSrcSpan . GHC.getLoc)
 

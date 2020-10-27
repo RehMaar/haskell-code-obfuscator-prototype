@@ -1,5 +1,5 @@
 {-# LANGUAGE TypeFamilies #-}
-module Transform.Context (initTransformContext) where
+module Transform.Context (TransformContext(..), initTransformContext) where
     
 import Language.Haskell.GHC.ExactPrint.Utils as EP
 
@@ -19,6 +19,45 @@ import Data.List
 import Transform.Types
 import Transform.Query
 import Utils
+
+data TransformContext = TC {
+      tcModName :: String
+    , tcTopLevelDefs :: [Loc String]
+    , tcArgs :: [Loc String]
+    , tcInnerDefs :: [Loc Def]
+    , tcVars :: [Loc Var]
+    -- , tcRenamings :: [(String, String)]
+    , tcNames :: [String]
+    , tcExported :: [String]
+    , tcInternal_ :: [TopLevelDef]
+  }
+  deriving Show
+
+initTransformContext rvs mod =
+  let tldefs = addQualInTld (namesToVars rvs) <$> collectTopLevelBindings mod
+      (topLevelDefs, args, innerDefs, vars) = foldl' collectTldInfo ([], [], [], []) tldefs
+
+      exported = "main" : fromMaybe [] (collectExportedSym mod)
+      symbols = allSymbols args innerDefs vars
+      notExportedDefs = (lcelem <$> topLevelDefs) \\ exported
+      names = unique $ symbols <> notExportedDefs
+
+      modName   = fromMaybe "Main" $ getModuleName mod
+      -- renamings = zip names $ generateObfuscatedNames names
+  in TC {
+      tcModName = modName,
+      tcTopLevelDefs = topLevelDefs,
+      tcArgs = args,
+      tcInnerDefs = innerDefs,
+      tcVars = vars,
+      -- tcRenamings = renamings,
+      tcNames = names,
+      tcExported = exported,
+      tcInternal_ = tldefs }
+  where
+    addQualInTld rvs t@TLDef{ tldefvars = vs } = t { tldefvars = addQualifications rvs vs }
+    collectTldInfo (ds, as, vs, is) (TLDef d a v i) = (d : ds, a ++ as , v ++ vs, i ++ is)
+
 
 -- | Collect a list exported identifiers.
 -- Result:
@@ -71,29 +110,6 @@ collectTopLevelBindings =
         var :: HsExpr GhcPs -> [Located RdrName]
         var (HsVar _ var) = [var]
         var _ = []
-
-initTransformContext modName rvs mod =
-  let tldefs = addQualInTld (namesToVars rvs) <$> collectTopLevelBindings mod
-      (topLevelDefs, args, innerDefs, vars) = foldl' collectTldInfo ([], [], [], []) tldefs
-
-      exported = "main" : fromMaybe [] (collectExportedSym mod)
-      symbols = allSymbols args innerDefs vars
-      notExportedDefs = (lcelem <$> topLevelDefs) \\ exported
-      names = unique $ symbols <> notExportedDefs
-      -- renamings = zip names $ generateObfuscatedNames names
-  in TC {
-      tcModName = modName,
-      tcTopLevelDefs = topLevelDefs,
-      tcArgs = args,
-      tcInnerDefs = innerDefs,
-      tcVars = vars,
-      -- tcRenamings = renamings,
-      tcNames = names,
-      tcExported = exported,
-      tcInternal_ = tldefs }
-  where
-    addQualInTld rvs t@TLDef{ tldefvars = vs } = t { tldefvars = addQualifications rvs vs }
-    collectTldInfo (ds, as, vs, is) (TLDef d a v i) = (d : ds, a ++ as , v ++ vs, i ++ is)
 
 addQualifications :: [Loc Var] -> [Loc Var] -> [Loc Var]
 addQualifications vars = fmap (update vars)

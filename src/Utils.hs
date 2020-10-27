@@ -13,6 +13,8 @@ import Data.String
 import Data.Generics as SYB
 import Control.Arrow ((&&&), first)
 
+import System.IO (hPutStrLn, stderr)
+
 import Outputable as Out
 
 unique :: Ord a => [a] -> [a]
@@ -59,3 +61,4 @@ addDecl d (HsModule n e i ds x y) = HsModule n e i (ds ++ [noLoc d]) x y
 addDeclWithSig :: HsDecl GhcPs -> HsDecl GhcPs -> HsModule GhcPs  -> HsModule GhcPs
 addDeclWithSig d s (HsModule n e i ds x y) = HsModule n e i (ds ++ [noLoc s, noLoc d]) x y
 
+putStrLnErr = hPutStrLn stderr
