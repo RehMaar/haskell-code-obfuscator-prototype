@@ -29,6 +29,8 @@ getModuleName = fmap (GHC.moduleNameString . GHC.unLoc)  . GHC.hsmodName
 showElem :: Out.Outputable p => p -> String
 showElem = Out.showSDocUnsafe . Out.ppr
 
+showL xs = intercalate "\n" (map show xs)
+
 -- | Destruct Name into a name and its qualifier.
 destructName :: GHC.Name -> (String, Maybe String)
 destructName = first GHC.occNameString . destructNameToOcc

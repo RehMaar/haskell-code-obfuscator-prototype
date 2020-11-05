@@ -68,7 +68,7 @@ lookupVar = lookupGen (\var name -> (lcloc name == lcloc var) &&
                                     (varname (lcelem var) == lcelem name))id
 lookupDef = lookupGen (\def name -> name == tldefname def) id
 
-rename :: TransformContext -> [(String, String)] -> ParsedSource -> ParsedSource
+{-rename :: TransformContext -> [(String, String)] -> ParsedSource -> ParsedSource
 rename octx renamings mod =
     apply changerSig $
     apply changerBind $
@@ -147,6 +147,103 @@ renameImportedSymbols octx renamings src = let
   where
     importedSymbols :: [Loc Var]
     importedSymbols = filter ((\q -> isVarQualified q && getVarQual q /= tcModName octx) . lcelem) $ tcVars octx
+
+    importedRenamings :: [(Loc Var, String)]
+    importedRenamings = catMaybes $ map findImported renamings
+
+    findImported (oldName, newName)
+      | Just var <- find (\(Loc _ n) -> varname n == oldName) importedSymbols
+      = Just (var, newName)
+    findImported _ = Nothing
+
+    newDecl (Loc _ var) newName = createDecl newName $ varname var
+
+    changerImported :: GHC.HsExpr GhcPs -> GHC.HsExpr GhcPs
+    changerImported (HsVar ext name)
+      | Just newName <- getNewName name
+      = HsVar ext (newRdrName newName <$> name)
+    changerImported x = x
+
+    getNewName name = lookupIR (rdrnameToVar name) importedRenamings
+
+    lookupIR _ [] = Nothing
+    lookupIR n@(Loc loc var) ((Loc loc' var', newName):irs)
+      | loc == loc'
+      , varname var == varname var'
+      = Just newName
+      | otherwise = lookupIR n irs-}
+
+rename :: SourceContext -> [(String, String)] -> ParsedSource -> ParsedSource
+rename sc renamings mod =
+    apply changerSig $
+    apply changerBind $
+    apply changerMatch $
+    apply changerPat $
+    apply changerVar mod
+  where
+   changerBind :: GHC.HsBind GhcPs -> GHC.HsBind GhcPs
+   changerBind (FunBind a name b c d)
+     | Just newName <- getNewNameDef sc name
+     = FunBind a (newRdrName newName <$> name) b c d
+   changerBind  x = x
+
+   changerMatch :: HsMatchContext RdrName -> HsMatchContext RdrName
+   changerMatch (FunRhs name a b)
+     | Just newName <- getNewNameDef sc name
+     = FunRhs (newRdrName newName <$> name) a b
+   changerMatch x = x
+
+   -- TODO: also change name of type signature
+   changerSig :: GHC.Sig GhcPs -> GHC.Sig GhcPs
+   changerSig (TypeSig _ names typ)
+     | Just names' <- sequence $ map f names
+     = TypeSig noExt names' typ
+     where
+      f :: Located RdrName -> Maybe (Located RdrName)
+      f name
+        | Just newName <- lookupRenaming renamings name
+        = Just (newRdrName newName <$> name)
+        | otherwise
+        = Nothing
+   changeSig x = x
+
+
+   changerPat :: GHC.Pat GhcPs -> GHC.Pat GhcPs
+   changerPat (VarPat a name)
+     | Just newName <- lookupRenaming renamings name
+     = VarPat a (newRdrName newName <$> name)
+   changerPat x = x
+
+   changerVar :: GHC.HsExpr GhcPs -> GHC.HsExpr GhcPs
+   changerVar (HsVar ext name)
+     | Just newName <- getNewNameVar sc name
+     = HsVar ext (newRdrName newName <$> name)
+   changerVar x = x
+
+   -- Check if we need to rename <name> and return a renaming.
+   -- Name is allowed to rename if it is in the `sc_allow_rename_locals` list.
+   getNewNameVar sc name
+     | Loc loc (Var name' _) <- rdrnameToVar name
+     , Just (Loc _ (Var _ qual)) <- lookupVar (sc_allow_rename_locals sc) (Loc loc name')
+     , Just newName <- lookupRenaming renamings name
+     = Just newName
+     | otherwise = Nothing
+
+   getNewNameDef sc name
+     | Loc loc (Var name' _) <- rdrnameToVar name
+     , Just _ <- find (== name') (sc_allow_rename_globals sc)
+     = lookup name' renamings
+     | otherwise = Nothing
+
+renameImportedSymbols :: SourceContext -> [(String, String)] -> ParsedSource -> ParsedSource
+renameImportedSymbols sc renamings src = let
+    src' = apply changerImported src
+    decls = uncurry newDecl <$> importedRenamings
+    src'' = foldl (\s decl -> addDecl decl <$> s) src' decls
+    in src''
+  where
+    importedSymbols :: [Loc Var]
+    importedSymbols = filter ((\q -> isVarQualified q && getVarQual q /= sc_module_name sc) . lcelem) $ sc_allow_rename_locals sc
 
     importedRenamings :: [(Loc Var, String)]
     importedRenamings = catMaybes $ map findImported renamings

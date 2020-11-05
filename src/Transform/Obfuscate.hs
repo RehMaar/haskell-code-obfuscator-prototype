@@ -60,22 +60,22 @@ import Data.Generics
 
 data ObfuscateContext
   = OC
-  { transformCtx :: TransformContext
-  , sourceMod :: ParsedSource
-  , symbols :: [Char]
-  , rangeSymbols :: (Int, Int)
-  , rangeNameLen :: (Int, Int)
-  , generator :: StdGen
-  , usedSymbols :: [String]
+  { oc_source_ctx:: SourceContext
+  , oc_parsed_source :: ParsedSource
+  , oc_symbols :: [Char]
+  , oc_range_symbols :: (Int, Int)
+  , oc_range_name_len :: (Int, Int)
+  , oc_generator :: StdGen
+  , oc_used_symbols :: [String]
   }
 
 type Obfuscate a = State ObfuscateContext a
 
 evalObfuscate f seed = evalState f . initObfuscate seed
 
-initObfuscateCommon symbols range seed (SourceInfo { si_parsed_source = src, si_qualified_names = rvs}) = let
-    tctx = initTransformContext rvs (unLoc src)
-  in OC tctx src symbols (0, pred $ length symbols) range (mkStdGen seed) []
+initObfuscateCommon symbols range seed si = let
+    sctx = initSC si
+  in OC sctx (si_parsed_source si) symbols (0, pred $ length symbols) range (mkStdGen seed) []
 
 initObfuscate = initObfuscateCommon defaultSymbols defaultRange
   where
@@ -84,7 +84,7 @@ initObfuscate = initObfuscateCommon defaultSymbols defaultRange
 
 setSource :: ParsedSource -> Obfuscate ()
 setSource src = do
-  modify (\ctx -> ctx { sourceMod = src })
+  modify (\ctx -> ctx { oc_parsed_source = src })
 
 getNextFreshName :: Obfuscate String
 getNextFreshName = do
@@ -97,7 +97,7 @@ getNextFreshName = do
   where
     isUsed :: String -> Obfuscate Bool
     isUsed name = do
-      used <- usedSymbols <$> get
+      used <- oc_used_symbols <$> get
       return $ name `elem` used
 
 
@@ -110,20 +110,20 @@ getNextFreshName = do
 
     getSymbol = do
       ctx <- get
-      idx <- getInt (rangeSymbols ctx)
-      return $ symbols ctx !! idx
+      idx <- getInt (oc_range_symbols ctx)
+      return $ oc_symbols ctx !! idx
 
 
     getWordLen :: Obfuscate Int
     getWordLen = do
-      range <- rangeNameLen <$> get
+      range <- oc_range_name_len <$> get
       getInt range
 
     getInt :: (Int, Int) -> Obfuscate Int
     getInt range = do
-      gen <- generator <$> get
+      gen <- oc_generator <$> get
       let (int, gen') = randomR range gen
-      modify (\ctx -> ctx { generator = gen' })
+      modify (\ctx -> ctx { oc_generator = gen' })
       return int
 
 applyTransformation :: Typeable a => (a -> a) -> Obfuscate ()
@@ -135,8 +135,8 @@ applyTransformationCommon
   -> (a -> a)
   -> Obfuscate ()
 applyTransformationCommon applier f = do
-  src <- sourceMod <$> get
-  modify (\ctx -> ctx { sourceMod = applier f src })
+  src <- oc_parsed_source <$> get
+  modify (\ctx -> ctx { oc_parsed_source = applier f src })
 
 -- | Transform do-notation into lambda form.
 --
@@ -151,9 +151,9 @@ applyTransformationCommon applier f = do
 --   a1 >>= \r1 -> (\l1 -> a2 >>= \r2 -> (... \rn -> e)) s1
 transformDoToLam :: Obfuscate ()
 transformDoToLam = do
-  src <- sourceMod <$> get
+  src <- oc_parsed_source <$> get
   src <- applyM transform src
-  modify (\ctx -> ctx { sourceMod = src })
+  modify (\ctx -> ctx { oc_parsed_source = src })
  where
   transform :: HsExpr GhcPs -> Obfuscate (HsExpr GhcPs)
   transform (HsDo _ DoExpr (L _ es)) = fromJust <$> foldrM update Nothing es
@@ -249,9 +249,9 @@ transformDoToLam = do
 transformStringAndChars :: Obfuscate ()
 transformStringAndChars = do
   ctx <- get
-  let src = sourceMod ctx
+  let src = oc_parsed_source ctx
   freeNameToChar <- getNextFreshName
-  modify (\ctx -> ctx { sourceMod = transform freeNameToChar src })
+  modify (\ctx -> ctx { oc_parsed_source = transform freeNameToChar src })
  where
   transform :: String -> ParsedSource -> ParsedSource
   transform freeName src = addIfChanged freeName $ do
@@ -358,24 +358,26 @@ instance Show (GenLocated SrcSpan RdrName) where
 obfuscateNames :: Obfuscate ParsedSource
 obfuscateNames = do
   ctx <- get
-  -- trace ("\n>> " ++ show (transformCtx ctx)) $ return ()
   renamings <- generateRenamings
-  let src1 = rename (transformCtx ctx) renamings (sourceMod ctx)
-  let src2 = renameImportedSymbols (transformCtx ctx) renamings src1
+  let src1 = rename (oc_source_ctx ctx) renamings (oc_parsed_source ctx)
+  let src2 = renameImportedSymbols (oc_source_ctx ctx) renamings src1
   setSource src2
   return src2
   where
+    generateRenamings :: Obfuscate [(String, String)]
+    generateRenamings = do
+      sc <- oc_source_ctx <$> get
+      let globals = sc_allow_rename_globals sc
+      let locals  = (varname . lcelem) <$> sc_allow_rename_locals sc
+      let rvs = unique $ sort $ globals ++ locals
+      generateRenamings' rvs
+
     generateRenamings' :: [String] -> Obfuscate [(String, String)]
     generateRenamings' [] = return []
     generateRenamings' (n:ns) = do
       name <- getNextFreshName
       rs   <- generateRenamings' ns
       return ((n, name):rs)
-
-    generateRenamings :: Obfuscate [(String, String)]
-    generateRenamings = do
-      rvs <- tcNames <$> transformCtx <$> get
-      generateRenamings' rvs
 
 obfuscateStructure :: Obfuscate ParsedSource
 obfuscateStructure = do
@@ -385,7 +387,7 @@ obfuscateStructure = do
   applyTransformationCommon applyTopDown transformOpToApp
   applyTransformation transformIfCase
   applyTransformation transformMultiArgLam
-  sourceMod <$> get
+  oc_parsed_source <$> get
 
 obfuscate = obfuscateWithSeed 0
 

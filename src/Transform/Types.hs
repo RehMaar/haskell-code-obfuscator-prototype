@@ -27,6 +27,13 @@ isQual _ = False
 getQual (PQual q) = Just q
 getQual _ = Nothing
 
+getRealQual (PQual q) = q
+getRealQual (RQual q) = q
+
+sameQualMod :: String -> Qual String -> Bool
+sameQualMod _ NoQual = False
+sameQualMod name q = name == getRealQual q
+
 data Var = Var { varname :: String, varqual :: Qual String }
   deriving Eq
 
@@ -47,6 +54,8 @@ isVarQualified (Var _ (PQual _)) = True
 isVarQualified _ = False
 
 getVarQual (Var _ (PQual q)) = q
+
+getVarName (Var n _) = n
 
 newtype Def = Def { defname :: String }
   deriving Eq
@@ -84,7 +93,6 @@ nameToVar name = Loc (getLoc name) $ nameToVar' $ unLoc name
 nameToVar' :: Name -> Var
 nameToVar' name = let (nm, qual) = destructName name
                   in mkVar nm (maybe NoQual PQual qual)
-                  -- Var { varqual = qual, varname = nm }
 
 rdrnamesToVars :: [Located RdrName] -> [Loc Var]
 rdrnamesToVars = map rdrnameToVar . filter (GHC.isGoodSrcSpan . GHC.getLoc)

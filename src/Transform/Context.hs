@@ -26,134 +26,6 @@ import Transform.Query
 import Source
 import Utils
 
--- TODO: rename (maybe SourceContext)
-data TransformContext = TC {
-      tcModName :: String
-    , tcTopLevelDefs :: [Loc String]
-    , tcArgs :: [Loc String]
-    , tcInnerDefs :: [Loc Def]
-    , tcVars :: [Loc Var]
-    -- , tcRenamings :: [(String, String)]
-    , tcNames :: [String]
-    , tcExported :: [String]
-    , tcInternal_ :: [TopLevelDef]
-  }
-  -- deriving Show
-
-instance Show TransformContext where
-  show tc = ">> ModName:\n"  ++ show (tcModName tc)      ++ "\n" ++
-            ">> Defs:\n"     ++ showL (tcTopLevelDefs tc) ++ "\n" ++
-            ">> Args:\n"     ++ showL (tcArgs tc)         ++ "\n" ++
-            ">> Inners:\n"   ++ showL (tcInnerDefs tc)    ++ "\n" ++
-            ">> Vars:\n"     ++ showL (tcVars tc)         ++ "\n" ++
-            ">> Names:\n"    ++ showL (tcNames tc)        ++ "\n" ++
-            ">> Exported:\n" ++ showL (tcExported tc)     ++ "\n" ++
-            show (tcInternal_ tc)
-
-showL xs = intercalate "\n" (map show xs)
-
-
-
-initTransformContext :: [Located Name] -> HsModule GhcPs -> TransformContext
-initTransformContext rvs mod =
-  let tldefs = addQualInTld (namesToVars rvs) <$> collectTopLevelBindings mod
-      (topLevelDefs, args, innerDefs, vars) = foldl' collectTldInfo ([], [], [], []) tldefs
-
-      exported = "main" : fromMaybe [] (collectExportedSym mod)
-      symbols = allSymbols args innerDefs vars
-      notExportedDefs = (lcelem <$> topLevelDefs) \\ exported
-      names = unique $ symbols <> notExportedDefs
-
-      modName   = fromMaybe "Main" $ getModuleName mod
-      -- renamings = zip names $ generateObfuscatedNames names
-  in TC {
-      tcModName = modName,
-      tcTopLevelDefs = topLevelDefs,
-      tcArgs = args,
-      tcInnerDefs = innerDefs,
-      tcVars = vars,
-      -- tcRenamings = renamings,
-      tcNames = names,
-      tcExported = exported,
-      tcInternal_ = tldefs }
-  where
-    addQualInTld rvs t@TLDef{ tldefvars = vs } = t { tldefvars = addQualifications rvs vs }
-    collectTldInfo (ds, as, vs, is) (TLDef d a v i) = (d : ds, a ++ as , v ++ vs, i ++ is)
-
-
--- | Collect a list exported identifiers.
--- Result:
---  Nothing -> no export list => export all
---  Just [] -> export nothing
---  Just [..] -> export a list of names
-collectExportedSym :: HsModule GhcPs -> Maybe [String]
-collectExportedSym mod = mapMaybe (handleExports . unLoc) . unLoc <$> hsmodExports mod
-  where
-    handleExports :: IE GhcPs -> Maybe String
-    handleExports (IEVar _ name) = Just $ rdrName2String $ lieWrappedName name
-    handleExports _ = Nothing
-
-collectTopLevelBindings :: HsModule GhcPs -> [TopLevelDef]
-collectTopLevelBindings =
-  fmap toTopLevelDef . collectBut' funB
-  where
-    toTopLevelDef (name, mg) =
-      let
-        name' = rdrName2String <$> toLoc name
-        args = fmap (fmap rdrName2String . toLoc) $ unique $ concat $ collectArguments mg
-        defs = rdrnameToDef <$> collectInnerDefs mg
-        vars = rdrnamesToVars $ collectInnerVars mg
-      in TLDef name' args defs vars
-
-    funB :: HsBind GhcPs -> ([(Located RdrName, MatchGroup GhcPs (LHsExpr GhcPs))], Bool)
-    funB (FunBind _ name matches _ _) = ([(name, matches)], True)
-    funB _ = ([], False)
-
-    collectArguments' :: Match GhcPs (LHsExpr GhcPs) -> [Located RdrName]
-    collectArguments' (Match _ _ pat _) = collect arg pat
-      where
-        arg :: Pat GhcPs -> [Located RdrName]
-        arg (VarPat _ name) = [name]
-        arg _ = []
-
-    collectArguments :: MatchGroup GhcPs (LHsExpr GhcPs) -> [[Located RdrName]]
-    collectArguments =  fmap (collectArguments' . unLoc) . unLoc . mg_alts
-
-    collectInnerDefs :: MatchGroup GhcPs (LHsExpr GhcPs) -> [Located RdrName]
-    collectInnerDefs = collect innerDefs
-      where
-        innerDefs :: HsBind GhcPs -> [Located RdrName]
-        innerDefs (FunBind _ name _ _ _) = [name]
-        innerDefs _ = []
-
-    collectInnerVars :: MatchGroup GhcPs (LHsExpr GhcPs) -> [Located RdrName]
-    collectInnerVars = collect var
-      where
-        var :: HsExpr GhcPs -> [Located RdrName]
-        var (HsVar _ var) = [var]
-        var _ = []
-
-addQualifications :: [Loc Var] -> [Loc Var] -> [Loc Var]
-addQualifications vars = fmap (update vars)
-  where
-    update vars v@(Loc loc (Var name _))
-      | Just q <- findQual vars v
-      = Loc loc (Var name q)
-      | otherwise
-      = v
-
-    findQual [] _ = Nothing
-    findQual (Loc l (Var n q):vs) v@(Loc loc (Var name _))
-      | l == loc, n == name = Just q
-      | otherwise = findQual vs v
-
-allSymbols args defs vars =
-   (lcelem <$> args)
-   <> (defname . lcelem <$> defs)
-   <> (varname . lcelem <$> vars)
-
--- WIP
-{-
 data SourceContext
   = SC
   { sc_module_name :: String
@@ -164,9 +36,13 @@ data SourceContext
    --  * Nothing -- everything is exported
    --  * Just [] -- nothing is exported
    --  * Just xs -- export only symbols in the list
-  , sc_allow_rename :: [Loc Var]
+  , sc_allow_rename_locals :: [Loc Var]
+  , sc_allow_rename_globals :: [String]
   }
   deriving Show
+
+putExports si = putStrLn $ showL $ fromJust $ collectExportedSym' <$> si_exported si
+putDecls si = putStrLn $ showL $ collectDecls $ unLoc $ si_parsed_source si
 
 data Exported
   = ExportedTyCl { e_typeName :: Var, e_ctrs :: [Var], e_fields :: [Var] }
@@ -180,52 +56,107 @@ data Decl
  = DataD  { dt_name :: String, dt_ctrs :: [Con] }
  | ClassD { cls_name :: String, cls_funs :: [String] }
  | FunD   { fun_name :: Loc String
-             , fun_args :: [Loc String]
-             , fun_innerDecls :: [Decl]
-             , fun_vars :: [Loc Var]}
+          , fun_args :: [Loc String]
+          , fun_inner_decls :: [Decl]
+          , fun_vars :: [Loc Var]}
  -- Probably, need it later
  -- | TypeDecl  { tp_name :: Loc Def  }
  -- | InstDecl  { inst_className :: String, inst_typeName :: String, inst_funs :: [String] }
  -- | SigDecl   { decl_name :: Loc Def}
   deriving Show
 
-initSC :: SourceInfo -> SourceContext
+{-
+-- Debug show
+instance Show Decl where
+      show (FunD n a [] vs) = "> Fun <" <> show n <> "> (" <> show a <> ")\n"
+                            <> "  Vars: " <> show vs <> "\n"
+  show (FunD n a ids vs) = "> Fun <" <> show n <> "> (" <> show a <> ")\n"
+                            <> "  Vars: " <> show vs <> "\n"
+                            <> ">> Idecls:\n" <> showL ids
+  show (DataD n cs) = "Data <" <> n <> "> " ++ show cs
+  show (ClassD n cs) = "Class <" <> n <> "> " ++ show cs
+
+-}
+-- initSC :: SourceInfo -> SourceContext
 initSC (SourceInfo _ src rvs exports _ ) = let
     modName   = fromMaybe "Main" $ getModuleName $ unLoc src
     decls = collectDecls $ unLoc src
     exported = (collectExportedSym' <$> exports)
     decls' = addQualifications' (namesToVars rvs) decls
-    allow_rename = collectAllowRename modName decls exported
+    (allow_rename_globals, allow_rename_locals) = collectAllowRename modName decls' exported
   in SC { sc_module_name = modName
         , sc_decls = decls
         , sc_exported = exported
-        , sc_allow_rename = undefined
+        , sc_allow_rename_locals = allow_rename_locals
+        , sc_allow_rename_globals = allow_rename_globals
         }
 
+-- Add qual only to vars (inner decls aren't touched)
 addQualifications' :: [Loc Var] -> [Decl] -> [Decl]
-addQualifications' = undefined
-
-collectAllowRename :: String -> [Decl] -> Maybe [Exported] -> [Loc Var]
-collectAllowRename modName decls exported = let
-    topLevelToRename = fromMaybe [] (allowRenameTopLevel modName decls <$> exported)
-    localsToRename   = allowRenameLocals modName exported decls
-  in undefined
-
-allowRenameLocals modName exps decls = undefined
+addQualifications' = map . addQual
   where
-    funLocals FunD { fun_args = args, fun_innerDecls = idecls, fun_vars = vars } = undefined
+    addQual :: [Loc Var] -> Decl -> Decl
+    addQual rvs f@(FunD { fun_vars = vars }) = f { fun_vars = map (changeQual rvs) vars }
+    addQual _ d = d
+
+    changeQual :: [Loc Var] -> Loc Var -> Loc Var
+    changeQual rvs (Loc loc (Var v qual))
+      | (x:_) <- filter (\l -> lcloc l == loc && getVarName (lcelem l) == v) rvs
+      = Loc loc $ mkVar v $ newQual qual $ varqual $ lcelem x
+    changeQual _ x = x
+
+    newQual q@(PQual _) _ = q
+    newQual _ NoQual = NoQual
+    newQual _ q = RQual $ getRealQual q
+
+collectAllowRename :: String -> [Decl] -> Maybe [Exported] -> ([String], [Loc Var])
+collectAllowRename modName decls exported = let
+    topLevelToRename = allowRenameTopLevel modName decls exported
+    localsToRename   = allowRenameLocals modName decls exported
+  in (topLevelToRename, localsToRename)
+
+allowRenameLocals :: String -> [Decl] -> Maybe [Exported] -> [Loc Var]
+-- every top level is exported
+-- only list of `exported` is exported
+allowRenameLocals modName decls exported  = let
+    allVars = concatMap funLocals decls
+    allowedVars = filter (allowToRenameVar modName exported) allVars
+  in allowedVars
+  where
+    funLocals FunD { fun_args = args, fun_vars = vars } = (fmap mkVarNoQual <$> args) ++ vars
+    funLocals _ = []
+
+    -- Checks if a variable qualified with a current module and doesn't exported.
+    allowToRenameVar _ _ (Loc _ (Var _ NoQual)) = True
+    allowToRenameVar modName Nothing (Loc _ (Var _ qual)) = not $ sameQualMod modName qual
+    allowToRenameVar modName (Just exported) (Loc _ v@(Var var qual))
+      | sameQualMod modName qual
+      = not $ isExportedFun modName exported v
+    allowToRenameVar _ _ _ = False
+
+    isExportedFun :: String -> [Exported] -> Var -> Bool
+    isExportedFun _ [] _ = False
+    isExportedFun _ _ (Var _ NoQual) = False
+    isExportedFun m (ExportedFun e:es) (Var v q)
+      | sameQualMod m (varqual e)
+      , varname e == v
+      = True
+    isExportedFun m (_:es) v = isExportedFun m es v
 
 
 -- | Collect top level symbols allowed to rename
 --
 -- TODO: does not include data constructors
-allowRenameTopLevel :: String -> [Decl] -> [Exported] -> [String]
-allowRenameTopLevel modName decls exps = let
-    topLevelFun  = filter (not . isExportedFun exps) $ concatMap toplevelFun decls
-    topLevelCtrs = filter (not . isExportedCtr exps) $ concatMap toplevelCtrs decls
-    notExportedDefs = undefined
-    notExportedVars = undefined
-  in topLevelCtrs ++ topLevelFun
+allowRenameTopLevel :: String -> [Decl] -> Maybe [Exported] -> [String]
+allowRenameTopLevel modName decls exps= let
+    topLevelFun  = concatMap toplevelFun decls
+    topLevelCtrs = concatMap toplevelCtrs decls
+  in case exps of
+        Nothing -> topLevelFun ++ topLevelCtrs
+        Just exps ->
+            filter (not . isExportedFun exps) topLevelFun
+            ++
+            filter (not . isExportedCtr exps) topLevelCtrs
   where
     toplevelFun FunD { fun_name = name } = [lcelem name]
     toplevelFun _ = []
@@ -236,19 +167,15 @@ allowRenameTopLevel modName decls exps = let
 
     isExportedFun [] _ = False
     isExportedFun (ExportedFun var : es) name
-      = undefined
-      -- | var == Var name (Just modName)
-      -- = True
+      | var == Var name (PQual modName)
+      = True
     isExportedFun (_:es) name = isExportedFun es name
 
     isExportedCtr [] _ = False
     isExportedCtr (ExportedTyCl { e_ctrs = cs, e_fields = fs } : es) name
-      = undefined
-      -- | Var name (Just modName) `elem` fs || Var name (Just modName) `elem` cs
-      -- = True
+      | Var name (PQual modName) `elem` fs || Var name (PQual modName) `elem` cs
+      = True
     isExportedCtr (_:es) n = isExportedCtr es n
-
-allowRenameVars = undefined
 
 collectExportedSym' :: [(LIE GhcRn, GHC.Avails)] -> [Exported]
 collectExportedSym' = mapMaybe (handleExports . first unLoc)
@@ -304,6 +231,7 @@ collectDecls = mapMaybe (handleDecl . unLoc) . hsmodDecls
       let
         name' = rdrName2String <$> toLoc name
         args = fmap (fmap rdrName2String . toLoc) $ unique $ concat $ collectArguments mg
+        --args = collectArguments mg
         defs = collectInnerDefs mg
         vars = rdrnamesToVars $ collectInnerVars mg
       in FunD name' args defs vars
@@ -331,4 +259,3 @@ collectDecls = mapMaybe (handleDecl . unLoc) . hsmodDecls
         var :: HsExpr GhcPs -> [Located RdrName]
         var (HsVar _ var) = [var]
         var _ = []
--}
