@@ -73,7 +73,7 @@ type Obfuscate a = State ObfuscateContext a
 
 evalObfuscate f seed = evalState f . initObfuscate seed
 
-initObfuscateCommon symbols range seed (SourceInfo _ src rvs _) = let
+initObfuscateCommon symbols range seed (SourceInfo { si_parsed_source = src, si_qualified_names = rvs}) = let
     tctx = initTransformContext rvs (unLoc src)
   in OC tctx src symbols (0, pred $ length symbols) range (mkStdGen seed) []
 
@@ -81,6 +81,10 @@ initObfuscate = initObfuscateCommon defaultSymbols defaultRange
   where
     defaultSymbols = ['A'..'Z'] ++ ['a'..'z']
     defaultRange = (1, 10)
+
+setSource :: ParsedSource -> Obfuscate ()
+setSource src = do
+  modify (\ctx -> ctx { sourceMod = src })
 
 getNextFreshName :: Obfuscate String
 getNextFreshName = do
@@ -354,9 +358,12 @@ instance Show (GenLocated SrcSpan RdrName) where
 obfuscateNames :: Obfuscate ParsedSource
 obfuscateNames = do
   ctx <- get
+  -- trace ("\n>> " ++ show (transformCtx ctx)) $ return ()
   renamings <- generateRenamings
   let src1 = rename (transformCtx ctx) renamings (sourceMod ctx)
-  return $ renameImportedSymbols (transformCtx ctx) renamings src1
+  let src2 = renameImportedSymbols (transformCtx ctx) renamings src1
+  setSource src2
+  return src2
   where
     generateRenamings' :: [String] -> Obfuscate [(String, String)]
     generateRenamings' [] = return []

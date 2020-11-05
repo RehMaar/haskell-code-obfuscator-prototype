@@ -117,9 +117,11 @@ rename octx renamings mod =
 
 
    getNewNameVar octx name
-     | Loc loc (Var name' qual') <- rdrnameToVar name
+     | Loc loc (Var name' _) <- rdrnameToVar name
      , Just (Loc _ (Var _ qual)) <- lookupVar (tcVars octx) (Loc loc name')
-     , fromMaybe "" qual == tcModName octx && (name' `notElem` tcExported octx) || isNothing qual
+     , fromMaybe "" (getQual qual) == tcModName octx
+       && (name' `notElem` tcExported octx)
+       || isNoQual qual
      , Just newName <- lookupRenaming renamings name
      = Just newName
      | otherwise = Nothing
@@ -144,7 +146,7 @@ renameImportedSymbols octx renamings src = let
     in src''
   where
     importedSymbols :: [Loc Var]
-    importedSymbols = filter ((\q -> isJust q && fromJust q /= tcModName octx) . varqual . lcelem) $ tcVars octx
+    importedSymbols = filter ((\q -> isVarQualified q && getVarQual q /= tcModName octx) . lcelem) $ tcVars octx
 
     importedRenamings :: [(Loc Var, String)]
     importedRenamings = catMaybes $ map findImported renamings
