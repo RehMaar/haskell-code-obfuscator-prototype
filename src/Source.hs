@@ -21,6 +21,7 @@ import           Language.Haskell.GHC.ExactPrint.Delta
                                                as EP
 
 import           GHC
+import qualified Avail                         as GHC
 import qualified HscMain                       as GHC
 import qualified OccName                       as GHC
 import qualified RdrName                       as GHC
@@ -126,6 +127,8 @@ data SourceInfo
   { si_annotations :: Anns
   , si_parsed_source :: ParsedSource
   , si_qualified_names :: [Located Name]
+  -- ^List of all names with their right qualifications obtained from Typechecked tree.
+  , si_exported :: Maybe [(LIE GhcRn, GHC.Avails)]
   , si_dynflags :: DynFlags
     --, si_internals_ :: Maybe (TypecheckedModule, HscEnv)
   }
@@ -146,7 +149,7 @@ handleModuleWith get path = do
   let Right (ans, _) =
         postParseTransform (Right (apianns, [], dflags, src)) normalLayout
 
-  let Just (group, _, _, _) = tm_renamed_source tm
+  let Just (group, _, exports, _) = tm_renamed_source tm
   let rvs                   = collectLocatedRenamedNames group
   let rvs'                  = fmap destructNameToOcc <$> rvs
   fixities <- getFixities hsc_env
@@ -160,6 +163,7 @@ handleModuleWith get path = do
   return $ SourceInfo { si_annotations     = ans
                       , si_parsed_source   = src'
                       , si_qualified_names = rvs
+                      , si_exported        = exports
                       , si_dynflags        = dflags
     -- , si_internals_ = (rm, hsc_env)
                       }
