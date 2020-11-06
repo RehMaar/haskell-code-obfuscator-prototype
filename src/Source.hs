@@ -177,8 +177,11 @@ handleModuleWith get path = do
   collectLocatedRenamedNames :: HsGroup GhcRn -> [Located Name]
   collectLocatedRenamedNames = collect varName
 
+  -- Variables and field selectors
   varName :: HsExpr GhcRn -> [Located Name]
   varName (HsVar _ var) = [var]
+  varName (HsRecFld _ (Unambiguous n rdrn)) = [L (getLoc rdrn) n]
+  varName (HsRecFld _ (Ambiguous _ _ )) = error "Soucrce:varName:Ambiguous: What case?"
   varName x             = []
 
 -- getSource :: String -> IO (Maybe TypecheckedModule, DynFlags)

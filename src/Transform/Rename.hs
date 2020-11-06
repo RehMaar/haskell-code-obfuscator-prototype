@@ -34,6 +34,7 @@ import Data.List
 import Data.String
 
 import Control.Arrow ((&&&))
+import Control.Applicative ((<|>))
 
 import qualified Outputable as Out
 
@@ -44,6 +45,7 @@ import Transform.Types
 import Transform.Query
 import Transform.Context
 
+import Debug.Trace
 
 lookupRenaming [] _ = Nothing
 lookupRenaming ((oldname, newname):rn) name
@@ -68,111 +70,6 @@ lookupVar = lookupGen (\var name -> (lcloc name == lcloc var) &&
                                     (varname (lcelem var) == lcelem name))id
 lookupDef = lookupGen (\def name -> name == tldefname def) id
 
-{-rename :: TransformContext -> [(String, String)] -> ParsedSource -> ParsedSource
-rename octx renamings mod =
-    apply changerSig $
-    apply changerBind $
-    apply changerMatch $
-    apply changerPat $
-    apply changerVar mod
-  where
-   changerBind :: GHC.HsBind GhcPs -> GHC.HsBind GhcPs
-   changerBind (FunBind a name b c d)
-     | Just newName <- getNewNameDef octx name
-     = FunBind a (newRdrName newName <$> name) b c d
-   changerBind  x = x
-
-   changerMatch :: HsMatchContext RdrName -> HsMatchContext RdrName
-   changerMatch (FunRhs name a b)
-     | Just newName <- getNewNameDef octx name
-     = FunRhs (newRdrName newName <$> name) a b
-   changerMatch x = x
-
-   -- TODO: also change name of type signature
-   changerSig :: GHC.Sig GhcPs -> GHC.Sig GhcPs
-   changerSig (TypeSig _ names typ)
-     | Just names' <- sequence $ map f names
-     = TypeSig noExt names' typ
-     where
-      f :: Located RdrName -> Maybe (Located RdrName)
-      f name
-        | Just newName <- lookupRenaming renamings name
-        = Just (newRdrName newName <$> name)
-        | otherwise
-        = Nothing
-   changeSig x = x
-
-
-   changerPat :: GHC.Pat GhcPs -> GHC.Pat GhcPs
-   changerPat (VarPat a name)
-     | Just newName <- lookupRenaming renamings name
-     = VarPat a (newRdrName newName <$> name)
-   changerPat x = x
-
-   changerVar :: GHC.HsExpr GhcPs -> GHC.HsExpr GhcPs
-   changerVar (HsVar ext name)
-     | Just newName <- getNewNameVar octx name
-     = HsVar ext (newRdrName newName <$> name)
-   changerVar x = x
-
-
-   getNewNameVar octx name
-     | Loc loc (Var name' _) <- rdrnameToVar name
-     , Just (Loc _ (Var _ qual)) <- lookupVar (tcVars octx) (Loc loc name')
-     , fromMaybe "" (getQual qual) == tcModName octx
-       && (name' `notElem` tcExported octx)
-       || isNoQual qual
-     , Just newName <- lookupRenaming renamings name
-     = Just newName
-     | otherwise = Nothing
-
-   getNewNameDef octx name
-     | loc    <- getLoc name
-     , name'  <- rdrName2String $ unLoc name
-     , Just _ <- find (== Loc loc name') (tcTopLevelDefs octx)
-     , name' `notElem` tcExported octx
-     = lookup name' renamings
-     | loc     <- getLoc name
-     , name'   <- rdrName2String $ unLoc name
-     , Nothing <- find (== Loc loc name') (tcTopLevelDefs octx)
-     = lookup name' renamings
-     | otherwise = Nothing
-
-renameImportedSymbols :: TransformContext -> [(String, String)] -> ParsedSource -> ParsedSource
-renameImportedSymbols octx renamings src = let
-    src' = apply changerImported src
-    decls = uncurry newDecl <$> importedRenamings
-    src'' = foldl (\s decl -> addDecl decl <$> s) src' decls
-    in src''
-  where
-    importedSymbols :: [Loc Var]
-    importedSymbols = filter ((\q -> isVarQualified q && getVarQual q /= tcModName octx) . lcelem) $ tcVars octx
-
-    importedRenamings :: [(Loc Var, String)]
-    importedRenamings = catMaybes $ map findImported renamings
-
-    findImported (oldName, newName)
-      | Just var <- find (\(Loc _ n) -> varname n == oldName) importedSymbols
-      = Just (var, newName)
-    findImported _ = Nothing
-
-    newDecl (Loc _ var) newName = createDecl newName $ varname var
-
-    changerImported :: GHC.HsExpr GhcPs -> GHC.HsExpr GhcPs
-    changerImported (HsVar ext name)
-      | Just newName <- getNewName name
-      = HsVar ext (newRdrName newName <$> name)
-    changerImported x = x
-
-    getNewName name = lookupIR (rdrnameToVar name) importedRenamings
-
-    lookupIR _ [] = Nothing
-    lookupIR n@(Loc loc var) ((Loc loc' var', newName):irs)
-      | loc == loc'
-      , varname var == varname var'
-      = Just newName
-      | otherwise = lookupIR n irs-}
-
 rename :: SourceContext -> [(String, String)] -> ParsedSource -> ParsedSource
 rename sc renamings mod =
     apply changerSig $
@@ -193,20 +90,21 @@ rename sc renamings mod =
      = FunRhs (newRdrName newName <$> name) a b
    changerMatch x = x
 
-   -- TODO: also change name of type signature
    changerSig :: GHC.Sig GhcPs -> GHC.Sig GhcPs
    changerSig (TypeSig _ names typ)
-     | Just names' <- sequence $ map f names
+     | Just names' <- sequence $ map getSigName names
      = TypeSig noExt names' typ
-     where
-      f :: Located RdrName -> Maybe (Located RdrName)
-      f name
-        | Just newName <- lookupRenaming renamings name
-        = Just (newRdrName newName <$> name)
-        | otherwise
-        = Nothing
-   changeSig x = x
+   changerSig (ClassOpSig _ flag names typ)
+     | Just names' <- sequence $ map getSigName names
+     = ClassOpSig noExt flag names' typ
+   changerSig x = x
 
+   getSigName :: Located RdrName -> Maybe (Located RdrName)
+   getSigName name
+     | Just newName <- lookupRenaming renamings name
+     = Just (newRdrName newName <$> name)
+     | otherwise
+     = Nothing
 
    changerPat :: GHC.Pat GhcPs -> GHC.Pat GhcPs
    changerPat (VarPat a name)
@@ -229,9 +127,12 @@ rename sc renamings mod =
      = Just newName
      | otherwise = Nothing
 
+   -- TODO: test it better!
+   getNewNameDef :: SourceContext -> Located RdrName -> Maybe String
    getNewNameDef sc name
-     | Loc loc (Var name' _) <- rdrnameToVar name
-     , Just _ <- find (== name') (sc_allow_rename_globals sc)
+     | l@(Loc loc (Var name' _)) <- rdrnameToVar name
+     , Just _ <- find (== name') (sc_allow_rename_globals sc ++
+                    ((varname . lcelem) <$> sc_allow_rename_locals  sc))
      = lookup name' renamings
      | otherwise = Nothing
 

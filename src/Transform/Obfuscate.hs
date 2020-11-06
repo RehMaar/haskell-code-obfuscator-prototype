@@ -86,6 +86,13 @@ setSource :: ParsedSource -> Obfuscate ()
 setSource src = do
   modify (\ctx -> ctx { oc_parsed_source = src })
 
+getNextFreshVar :: Obfuscate String
+getNextFreshVar = do
+  name <- getNextFreshName
+  case name of
+    (n:ns) -> return (toLower n : ns)
+    []     -> error "getNextFreshVar: empty name"
+
 getNextFreshName :: Obfuscate String
 getNextFreshName = do
    wordLen <- getWordLen
@@ -351,33 +358,29 @@ addParens e@OpApp{}  = HsPar noExt (noLoc e)
 addParens e@NegApp{} = HsPar noExt (noLoc e)
 addParens x          = x
 
--- For debug pursposes
-instance Show (GenLocated SrcSpan RdrName) where
-  show (L s r) = rdrName2String r
+generateRenamings :: Obfuscate [(String, String)]
+generateRenamings = do
+  sc <- oc_source_ctx <$> get
+  let globals = sc_allow_rename_globals sc
+  let locals  = (varname . lcelem) <$> sc_allow_rename_locals sc
+  let rvs = unique $ sort $ globals ++ locals
+  generateRenamings' rvs
+  where
+    generateRenamings' :: [String] -> Obfuscate [(String, String)]
+    generateRenamings' [] = return []
+    generateRenamings' (n:ns) = do
+      name <- getNextFreshVar
+      rs   <- generateRenamings' ns
+      return ((n, name):rs)
 
 obfuscateNames :: Obfuscate ParsedSource
 obfuscateNames = do
   ctx <- get
   renamings <- generateRenamings
   let src1 = rename (oc_source_ctx ctx) renamings (oc_parsed_source ctx)
-  let src2 = renameImportedSymbols (oc_source_ctx ctx) renamings src1
-  setSource src2
-  return src2
-  where
-    generateRenamings :: Obfuscate [(String, String)]
-    generateRenamings = do
-      sc <- oc_source_ctx <$> get
-      let globals = sc_allow_rename_globals sc
-      let locals  = (varname . lcelem) <$> sc_allow_rename_locals sc
-      let rvs = unique $ sort $ globals ++ locals
-      generateRenamings' rvs
-
-    generateRenamings' :: [String] -> Obfuscate [(String, String)]
-    generateRenamings' [] = return []
-    generateRenamings' (n:ns) = do
-      name <- getNextFreshName
-      rs   <- generateRenamings' ns
-      return ((n, name):rs)
+  -- let src2 = renameImportedSymbols (oc_source_ctx ctx) renamings src1
+  setSource src1
+  return src1
 
 obfuscateStructure :: Obfuscate ParsedSource
 obfuscateStructure = do
@@ -396,4 +399,4 @@ obfuscateWithSeed = evalObfuscate obfuscate''
   where
     obfuscate'' = do
       obfuscateNames
-      obfuscateStructure
+      -- obfuscateStructure
