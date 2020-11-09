@@ -18,13 +18,6 @@ import Utils
 import System.Directory (makeAbsolute)
 import Options.Applicative
 
-{-
-
-Options:
-- --ghc-options=GHC-OPTIONS
-- --stack=PROJECT_DIRECTORY
--}
-
 data ObfTypeFlags
   = SimpleModuleFlags { ghcOpts :: String }
   | ProjectModuleFlags { projectWdir :: String }
@@ -49,7 +42,7 @@ programInfo = info (obfArgs <**> helper) desc
       <$> strOption
           (long "ghc-options"
            <> metavar "GHC_OPTIONS"
-           <> help "GHC options to compare")
+           <> help "GHC options to compile the given module")
     projectModuleFlags = ProjectModuleFlags
       <$> strOption
           (long "working-dir"
@@ -58,13 +51,12 @@ programInfo = info (obfArgs <**> helper) desc
           <> help "Path to a project directory")
 
     desc = fullDesc
-         <> progDesc "Prog desc"
+         <> progDesc "Description"
          <> header "obfuscate -- an utility for haskell code obfuscation"
 
 
 main = do
   flags <- execParser programInfo
-  putStrLnErr $ show flags
   handleFlags flags
   where
     handleFlags (ObfArgs file (ProjectModuleFlags wdir)) = obfuscateFileInProj wdir file
@@ -84,6 +76,7 @@ obfuscateCommon mod path = do
   let src = obfuscate si
   let dflags = si_dynflags si
   let code = O.showSDocOneLine dflags $ oneline (si_annotations si) $ unLoc src
+  -- let code = O.showSDoc dflags $ O.ppr src
   putStrLn code
 
 {--- For debug
@@ -94,14 +87,3 @@ obfuscateS path = do
   --let code = showSDocOneLine dflags $ oneline $ unLoc src
   let code = O.showSDocUnsafe $ O.ppr src
   putStrLn code-}
-
--- better not to use on filenames without '.hs'
-newFileName path = let
-   (extR, nameR) = break' (== '.') $ reverse path
-   name = reverse nameR
-   ext = reverse extR
-  in name ++ "_obf" ++ ext
-
-break' _ [] = ([], [])
-break' cond (x:xs) | cond x = ([x], xs)
-                   | otherwise = first (x:) $ break' cond xs

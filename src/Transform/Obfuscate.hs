@@ -399,4 +399,4 @@ obfuscateWithSeed = evalObfuscate obfuscate''
   where
     obfuscate'' = do
       obfuscateNames
-      -- obfuscateStructure
+      obfuscateStructure
