@@ -70,12 +70,25 @@ lookupDef = lookupGen (\def name -> name == tldefname def) id
 
 rename :: SourceContext -> [(String, String)] -> ParsedSource -> ParsedSource
 rename sc renamings mod =
+    -- Change fields in data types and records.
+    apply changerRecords$
+    -- Change type signatures
     apply changerSig $
+    -- Change function definitions
     apply changerBind $
     apply changerMatch $
+    -- Change arguments
     apply changerPat $
+    -- Change variables
     apply changerVar mod
   where
+
+   changerRecords :: GHC.FieldOcc GhcPs -> GHC.FieldOcc GhcPs
+   changerRecords (FieldOcc _ name)
+     | Just newName <- getNewNameDef sc name
+     = FieldOcc noExt (newRdrName newName <$> name)
+   changerRecords x = x
+
    changerBind :: GHC.HsBind GhcPs -> GHC.HsBind GhcPs
    changerBind (FunBind a name b c d)
      | Just newName <- getNewNameDef sc name

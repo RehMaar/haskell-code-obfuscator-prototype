@@ -73,6 +73,7 @@ type Obfuscate a = State ObfuscateContext a
 
 evalObfuscate f seed = evalState f . initObfuscate seed
 
+-- TODO: fill used symbols with already used in source code
 initObfuscateCommon symbols range seed si = let
     sctx = initSC si
   in OC sctx (si_parsed_source si) symbols (0, pred $ length symbols) range (mkStdGen seed) []
@@ -156,6 +157,11 @@ applyTransformationCommon applier f = do
 --   do { r1 <- a1; let l1 = s1; r2 <- a2; ... e }
 --    ==>
 --   a1 >>= \r1 -> (\l1 -> a2 >>= \r2 -> (... \rn -> e)) s1
+--
+-- TODO:
+--   * can use (>>)
+--   * test case: <pat> <- <expr>
+--     like `True <- return (x == y)`
 transformDoToLam :: Obfuscate ()
 transformDoToLam = do
   src <- oc_parsed_source <$> get

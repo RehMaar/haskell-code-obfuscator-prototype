@@ -136,12 +136,13 @@ allowRenameLocals modName decls topLevelToRename =
 allowRenameTopLevel :: String -> [Decl] -> Maybe [Exported] -> [String]
 allowRenameTopLevel modName decls exps =
   let topLevelFun  = concatMap toplevelFun decls
-      topLevelCtrs = [] -- concatMap toplevelCtrs decls
+      topLevelCtrs = concatMap toplevelCtrs decls
   in  case exps of
-        Nothing -> topLevelCtrs
+        Nothing -> []
         Just exps ->
-          filter (not . isExportedFun exps) topLevelFun
-            ++ filter (not . isExportedCtr exps) topLevelCtrs
+          filter (not . isExported exps) $ topLevelFun ++ topLevelCtrs
+               -- filter (not . isExportedFun exps) topLevelFun ++
+               -- filter (not . isExportedCtr exps) topLevelCtrs
  where
   toplevelFun FunD { fun_name = name } = [lcelem name]
   toplevelFun _                        = []
@@ -151,7 +152,16 @@ allowRenameTopLevel modName decls exps =
   toplevelCtrs ClassD { cls_funs = ns } = ns
   toplevelCtrs _                        = []
 
-  isExportedFun [] _ = False
+  isExported [] _ = False
+  isExported (ExportedFun var : es) name
+    | var == Var name (PQual modName)
+    = True
+  isExported (ExportedTyCl { e_ctrs = cs, e_fields = fs } : es) name
+    | Var name (PQual modName) `elem` fs || Var name (PQual modName) `elem` cs
+    = True
+  isExported (_ : es) n = isExported es n
+
+{-  isExportedFun [] _ = False
   isExportedFun (ExportedFun var : es) name | var == Var name (PQual modName) =
     True
   isExportedFun (_ : es) name = isExportedFun es name
@@ -160,7 +170,7 @@ allowRenameTopLevel modName decls exps =
   isExportedCtr (ExportedTyCl { e_ctrs = cs, e_fields = fs } : es) name
     | Var name (PQual modName) `elem` fs || Var name (PQual modName) `elem` cs
     = True
-  isExportedCtr (_ : es) n = isExportedCtr es n
+  isExportedCtr (_ : es) n = isExportedCtr es n-}
 
 --
 -- Note: all instances are exported in any case, but they're not
