@@ -55,7 +55,7 @@ type FixityEnv = [(String, [(GHC.OccName, GHC.Fixity)])]
 lookupFixityByName :: FixityEnv -> GHC.OccName -> String -> GHC.Fixity
 lookupFixityByName env name modname
   | Just symbs <- lookup modname env
-  = fromMaybe (GHC.defaultFixity) $ lookup name symbs
+  = fromMaybe GHC.defaultFixity $ lookup name symbs
 lookupFixityByName _ _ _ = GHC.defaultFixity
 
 --

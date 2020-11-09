@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeFamilies, TupleSections #-}
+{-# LANGUAGE TypeFamilies #-}
 module Transform.Rename (rename, renameImportedSymbols) where
 
 import Language.Haskell.GHC.ExactPrint as EP
@@ -103,10 +103,10 @@ rename sc renamings mod =
 
    changerSig :: GHC.Sig GhcPs -> GHC.Sig GhcPs
    changerSig (TypeSig _ names typ)
-     | Just names' <- sequence $ map getSigName names
+     | Just names' <- mapM getSigName names
      = TypeSig noExt names' typ
    changerSig (ClassOpSig _ flag names typ)
-     | Just names' <- sequence $ map getSigName names
+     | Just names' <- mapM getSigName names
      = ClassOpSig noExt flag names' typ
    changerSig x = x
 
@@ -143,7 +143,7 @@ rename sc renamings mod =
    getNewNameDef sc name
      | l@(Loc loc (Var name' _)) <- rdrnameToVar name
      , Just _ <- find (== name') (sc_allow_rename_globals sc ++
-                    ((varname . lcelem) <$> sc_allow_rename_locals  sc))
+                    (varname . lcelem <$> sc_allow_rename_locals  sc))
      = lookup name' renamings
      | otherwise = Nothing
 
@@ -158,7 +158,7 @@ renameImportedSymbols sc renamings src = let
     importedSymbols = filter ((\q -> isVarQualified q && getVarQual q /= sc_module_name sc) . lcelem) $ sc_allow_rename_locals sc
 
     importedRenamings :: [(Loc Var, String)]
-    importedRenamings = catMaybes $ map findImported renamings
+    importedRenamings = mapMaybe findImported renamings
 
     findImported (oldName, newName)
       | Just var <- find (\(Loc _ n) -> varname n == oldName) importedSymbols

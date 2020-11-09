@@ -1,6 +1,4 @@
-{-# LANGUAGE TypeFamilies, FlexibleInstances, TupleSections,
-             OverloadedStrings, DeriveFunctor, RankNTypes
-#-}
+{-# LANGUAGE TypeFamilies, FlexibleInstances, OverloadedStrings, RankNTypes #-}
 
 module Transform.Obfuscate where
 
@@ -56,8 +54,6 @@ import           Transform.Rename
 
 import           Debug.Trace
 
-import Data.Generics
-
 data ObfuscateContext
   = OC
   { oc_source_ctx:: SourceContext
@@ -105,7 +101,7 @@ getNextFreshName = do
   where
     isUsed :: String -> Obfuscate Bool
     isUsed name = do
-      used <- oc_used_symbols <$> get
+      used <- gets oc_used_symbols
       return $ name `elem` used
 
 
@@ -124,12 +120,12 @@ getNextFreshName = do
 
     getWordLen :: Obfuscate Int
     getWordLen = do
-      range <- oc_range_name_len <$> get
+      range <- gets oc_range_name_len
       getInt range
 
     getInt :: (Int, Int) -> Obfuscate Int
     getInt range = do
-      gen <- oc_generator <$> get
+      gen <- gets oc_generator
       let (int, gen') = randomR range gen
       modify (\ctx -> ctx { oc_generator = gen' })
       return int
@@ -143,7 +139,7 @@ applyTransformationCommon
   -> (a -> a)
   -> Obfuscate ()
 applyTransformationCommon applier f = do
-  src <- oc_parsed_source <$> get
+  src <- gets oc_parsed_source
   modify (\ctx -> ctx { oc_parsed_source = applier f src })
 
 -- | Transform do-notation into lambda form.
@@ -164,7 +160,7 @@ applyTransformationCommon applier f = do
 --     like `True <- return (x == y)`
 transformDoToLam :: Obfuscate ()
 transformDoToLam = do
-  src <- oc_parsed_source <$> get
+  src <- gets oc_parsed_source
   src <- applyM transform src
   modify (\ctx -> ctx { oc_parsed_source = src })
  where
@@ -273,7 +269,7 @@ transformStringAndChars = do
 
   addIfChanged freeName result
     | isChanged result
-    = fmap (addDeclWithSig decl sig) $ fromChanged result
+    = addDeclWithSig decl sig <$> fromChanged result
     | otherwise
     = fromChanged result
     where
@@ -346,7 +342,7 @@ transformOpToApp x = x
 -- | Transform if-expression to case.
 transformIfCase :: HsExpr GhcPs -> HsExpr GhcPs
 transformIfCase (HsIf _ _ (L _ conde) (L _ ife) (L _ thene)) =
-  case' conde $ [match [conP ("True") []] ife, match [conP ("False") []] thene]
+  case' conde [match [conP "True" []] ife, match [conP "False" []] thene]
 transformIfCase x = x
 
 -- | Transform multi-argument lambda to nested lambdas
@@ -366,9 +362,9 @@ addParens x          = x
 
 generateRenamings :: Obfuscate [(String, String)]
 generateRenamings = do
-  sc <- oc_source_ctx <$> get
+  sc <- gets oc_source_ctx
   let globals = sc_allow_rename_globals sc
-  let locals  = (varname . lcelem) <$> sc_allow_rename_locals sc
+  let locals  = varname . lcelem <$> sc_allow_rename_locals sc
   let rvs = unique $ sort $ globals ++ locals
   generateRenamings' rvs
   where
@@ -396,7 +392,7 @@ obfuscateStructure = do
   applyTransformationCommon applyTopDown transformOpToApp
   applyTransformation transformIfCase
   applyTransformation transformMultiArgLam
-  oc_parsed_source <$> get
+  gets oc_parsed_source
 
 obfuscate = obfuscateWithSeed 0
 

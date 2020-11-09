@@ -89,7 +89,7 @@ addQualifications' :: [Loc Var] -> [Decl] -> [Decl]
 addQualifications' = map . addQual
  where
   addQual :: [Loc Var] -> Decl -> Decl
-  addQual rvs f@(FunD { fun_vars = vars }) =
+  addQual rvs f@FunD { fun_vars = vars } =
     f { fun_vars = map (changeQual rvs) vars }
   addQual _ d = d
 
@@ -232,7 +232,7 @@ collectDecls = mapMaybe (handleDecl . unLoc) . hsmodDecls
   toClassDecl name ss = ClassD (rdrName2String name)
                                (concatMap collectNames ss)
    where
-    collectNames (L _ (ClassOpSig _ _ ns _)) = (rdrName2String . unLoc) <$> ns
+    collectNames (L _ (ClassOpSig _ _ ns _)) = rdrName2String . unLoc <$> ns
     collectNames _                           = []
 
   toDataDecl name HsDataDefn { dd_cons = cons } =
