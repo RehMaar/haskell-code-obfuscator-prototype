@@ -220,7 +220,7 @@ transformDoToLam = do
   -- Just for now we (I) support only such behaviour.
   --
   bindToLamOrLet PatBind { pat_lhs = pat, pat_rhs = body } k = do
-     freshName <- getNextFreshName
+     freshName <- getNextFreshVar
      let funName = GHC.mkRdrUnqual $ GHC.mkVarOcc freshName :: RdrName
      let body' = noLoc $ createFunBind funName [] body :: LHsBindLR GhcPs GhcPs
      let bind = noLoc $ HsValBinds noExt $ ValBinds noExt (GHC.listToBag [body']) []
@@ -257,7 +257,7 @@ transformStringAndChars :: Obfuscate ()
 transformStringAndChars = do
   ctx <- get
   let src = oc_parsed_source ctx
-  freeNameToChar <- getNextFreshName
+  freeNameToChar <- getNextFreshVar
   modify (\ctx -> ctx { oc_parsed_source = transform freeNameToChar src })
  where
   transform :: String -> ParsedSource -> ParsedSource

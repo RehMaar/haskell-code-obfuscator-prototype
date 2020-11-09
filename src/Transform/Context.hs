@@ -1,7 +1,5 @@
 {-# LANGUAGE TypeFamilies #-}
-module Transform.Context
-  -- (TransformContext(..), initTransformContext)
-                         where
+module Transform.Context where
 
 import           Language.Haskell.GHC.ExactPrint.Utils
                                                as EP
@@ -86,12 +84,6 @@ initSC (SourceInfo _ src rvs exports _) =
          , sc_allow_rename_globals = allow_rename_globals
          }
 
-exportedInst :: [Decl] -> [String]
-exportedInst ds = concatMap toExport (filter isInst ds)
-  where
-   toExport (InstanceD fs) = map toE fs
-   toE FunD { fun_name = Loc _ name } = name
-
 -- Add qual only to vars (inner decls aren't touched)
 addQualifications' :: [Loc Var] -> [Decl] -> [Decl]
 addQualifications' = map . addQual
@@ -146,7 +138,7 @@ allowRenameTopLevel modName decls exps =
   let topLevelFun  = concatMap toplevelFun decls
       topLevelCtrs = [] -- concatMap toplevelCtrs decls
   in  case exps of
-        Nothing -> topLevelFun ++ topLevelCtrs
+        Nothing -> topLevelCtrs
         Just exps ->
           filter (not . isExportedFun exps) topLevelFun
             ++ filter (not . isExportedCtr exps) topLevelCtrs

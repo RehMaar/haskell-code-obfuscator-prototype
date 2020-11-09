@@ -6,7 +6,7 @@ module OneLinePrinter
 import qualified Util as GHC.Util
 import GHC
 import ConLike
-import Bag (bagToList)
+import Bag (bagToList, isEmptyBag)
 import GHC.Paths (libdir)
 import DynFlags
 
@@ -52,9 +52,33 @@ onelineDecls = hsep . separate semi  . map (ol_decl . unLoc)
     ol_decl (ValD _ bind) = ol_bind bind
     ol_decl s@(SigD _ _) = ppr s
     ol_decl (TyClD _ d) = ppr d
+    ol_decl (InstD _ i) = ol_inst i
     -- TODO: Take them from annotations?
     ol_decl (WarningD{}) = text ""
     ol_decl x = error "Unsupported decl"
+
+    ol_inst (ClsInstD _ d) = ol_inst' d
+
+    -- Copied from GHC compiler
+    -- https://hackage.haskell.org/package/ghc-8.10.1/docs/src/GHC.Hs.Decls.html#line-1816
+    ol_inst' (ClsInstDecl { cid_poly_ty = inst_ty, cid_binds = binds
+                     , cid_sigs = sigs, cid_tyfam_insts = ats
+                     , cid_overlap_mode = mbOverlap
+                     , cid_datafam_insts = adts })
+      | null sigs, null ats, null adts, isEmptyBag binds
+      = top_matter
+      | otherwise       -- Laid out
+      = vcat [ top_matter <+> text "where"
+             , ol_binds_and_sigs binds sigs ]
+      where
+      top_matter = text "instance" <+> ppr inst_ty
+
+    ol_binds_and_sigs binds sigs = hsep $ punctuate semi $ map snd (sort_by_loc decls)
+        where
+        decls :: [(SrcSpan, SDoc)]
+        decls = [(loc, ppr sig)  | L loc sig <- sigs] ++
+                [(loc, ol_bind bind) | L loc bind <- bagToList binds]
+        sort_by_loc decls = sortBy (comparing fst) decls
 
     ol_bind :: HsBind GhcPs -> SDoc
     ol_bind (FunBind _ _ mg _ _) = ol_mg  mg
@@ -88,13 +112,7 @@ onelineDecls = hsep . separate semi  . map (ol_decl . unLoc)
     ol_lbinds (HsIPBinds _ b)  = error "HsIPBinds?"
     ol_lbinds _ = text ""
 
-    ol_valbind (ValBinds _ binds sigs) = hsep $ punctuate semi $ map snd (sort_by_loc decls)
-      where
-        decls :: [(SrcSpan, SDoc)]
-        decls = [(loc, ppr sig)  | L loc sig <- sigs] ++
-                [(loc, ol_bind bind) | L loc bind <- bagToList binds]
-
-        sort_by_loc decls = sortBy (comparing fst) decls
+    ol_valbind (ValBinds _ binds sigs) = ol_binds_and_sigs binds sigs
 
     ol_grhs :: GRHS GhcPs (LHsExpr GhcPs) -> (SDoc, SDoc)
     ol_grhs (GRHS _ guards body) = (ol_guards guards, ol_expr (unLoc body))

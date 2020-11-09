@@ -63,8 +63,6 @@ newRdrName name (GHC.Exact name')
   | otherwise
   = GHC.Unqual (GHC.mkVarOcc name)
 
--- newRdrName _ _ = error "newRdrName: Exact ctr. How is it used?"
-
 lookupVar :: [Loc Var] -> Loc String -> Maybe (Loc Var)
 lookupVar = lookupGen (\var name -> (lcloc name == lcloc var) &&
                                     (varname (lcelem var) == lcelem name))id
