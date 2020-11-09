@@ -5,12 +5,14 @@ unreadable for humans.
 
 ## Usage
 
-> Usage: obfuscate-exe FILE [--ghc-options GHC_OPTIONS | (-w|--working-dir WDIR)]
-> 
-> Available options:
->    --ghc-options GHC_OPTIONS GHC options to compare
->    -w, --working-dir WDIR    Path to a project directory
->    -h, --help                Show this help text
+```
+Usage: obfuscate-exe FILE [--ghc-options GHC_OPTIONS | (-w|--working-dir WDIR)]
+
+Available options:
+   --ghc-options GHC_OPTIONS GHC options to compare
+   -w, --working-dir WDIR    Path to a project directory
+   -h, --help                Show this help text
+```
 
 ## Examples
 
