@@ -6,9 +6,10 @@ unreadable for humans.
 ## Usage
 
 ```
-Usage: obfuscate-exe FILE [--ghc-options GHC_OPTIONS | (-w|--working-dir WDIR)]
+Usage: obfuscate-exe FILE [--seed INT] [--ghc-options GHC_OPTIONS | (-w|--working-dir WDIR)]
 
 Available options:
+   --seed INT                Seed for random name generation
    --ghc-options GHC_OPTIONS GHC options to compare
    -w, --working-dir WDIR    Path to a project directory
    -h, --help                Show this help text

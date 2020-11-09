@@ -10,6 +10,9 @@ import qualified Util
 import Control.Arrow
 import System.Environment
 
+import Data.Maybe
+import System.Random
+
 import Transform.Obfuscate
 import Source
 import OneLinePrinter
@@ -27,6 +30,7 @@ data ObfTypeFlags
 data ObfArgs
   = ObfArgs
   { file :: FilePath
+  , seed  :: Maybe Int
   , flags :: ObfTypeFlags
   }
   deriving Show
@@ -34,7 +38,14 @@ data ObfArgs
 programInfo :: ParserInfo ObfArgs
 programInfo = info (obfArgs <**> helper) desc
   where
-    obfArgs = ObfArgs <$> arg <*> flags
+    obfArgs = ObfArgs <$> arg <*> getSeed <*> flags
+    getSeed = (Just <$> getSeed') <|> pure Nothing
+    getSeed' = option auto
+              ( long "seed"
+             <> help "Seed for random generation"
+             <> metavar "INT")
+
+
     arg = argument str (metavar "FILE")
     flags = simpleModuleFlags <|> projectModuleFlags <|> noOpts
     noOpts = pure NoOpts
@@ -59,31 +70,22 @@ main = do
   flags <- execParser programInfo
   handleFlags flags
   where
-    handleFlags (ObfArgs file (ProjectModuleFlags wdir)) = obfuscateFileInProj wdir file
-    handleFlags (ObfArgs file (SimpleModuleFlags opts)) = do
+    handleFlags (ObfArgs file seed (ProjectModuleFlags wdir)) = obfuscateFileInProj wdir seed file
+    handleFlags (ObfArgs file seed (SimpleModuleFlags opts)) = do
         case Util.toArgs opts of
-          Right args -> obfuscateFile args  file
+          Right args -> obfuscateFile args seed file
           Left _ -> putStrLnErr "error: Unable to parse ghc options"
-    handleFlags (ObfArgs file NoOpts) = obfuscateFile [] file
+    handleFlags (ObfArgs file seed NoOpts) = obfuscateFile [] seed file
 
-obfuscateFileInProj = obfuscateCommon . ProjectModule
+obfuscateFileInProj arg seed file = obfuscateCommon (ProjectModule arg) seed file
+obfuscateFile       arg seed file = obfuscateCommon (SimpleModule arg) seed file
 
-obfuscateFile = obfuscateCommon . SimpleModule
-
-obfuscateCommon mod path = do
+obfuscateCommon mod seed path = do
   absPath <- makeAbsolute path
   si <- handleModule mod absPath
-  let src = obfuscate si
+  seed <- maybe randomIO return seed
+  let src = obfuscateWithSeed seed si
   let dflags = si_dynflags si
   let code = O.showSDocOneLine dflags $ oneline (si_annotations si) $ unLoc src
   -- let code = O.showSDoc dflags $ O.ppr src
   putStrLn code
-
-{--- For debug
-obfuscateS path = do
-  si <- handleModule (SimpleModule []) path
-  let (_, src) = obfuscateStructure si
-  let dflags = si_dynflags si
-  --let code = showSDocOneLine dflags $ oneline $ unLoc src
-  let code = O.showSDocUnsafe $ O.ppr src
-  putStrLn code-}
