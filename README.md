@@ -10,7 +10,7 @@ Usage: obfuscate-exe FILE [--seed INT] [--ghc-options GHC_OPTIONS | (-w|--workin
 
 Available options:
    --seed INT                Seed for random name generation
-   --ghc-options GHC_OPTIONS GHC options to compare
+   --ghc-options GHC_OPTIONS GHC options to compile a module with
    -w, --working-dir WDIR    Path to a project directory
    -h, --help                Show this help text
 ```
