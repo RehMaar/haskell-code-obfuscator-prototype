@@ -62,7 +62,16 @@ Note: need to have `hie.yaml` file in the main project directory.
 
 ## TODO: Transformations
 
-7. 
+* Inlining.
+* Number literals into hex.
+* Guards into case. Note: symantic problems with this transformation.
+* Function arguments to lambda. Note: only when `guards into case` enabled. 
+* Function arguments to lambda. Or when there are no guards.
+* Insert randomly generated definitions for distraction
+* Eta-expansion (`f` into `\x -> f x`).
+* Nice place for ideas: https://tigress.wtf/transformations.html
+
+## TODO: De-obfuscation
 
 ## TODO: User-friendly things
 
