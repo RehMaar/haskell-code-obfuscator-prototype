@@ -1,5 +1,6 @@
 {-# LANGUAGE TypeFamilies #-}
-module Transform.Context where
+module Transform.Context
+      (initSourceContext, SourceContext(..), Exported(..), Decl(..), Con(..)) where
 
 import           Language.Haskell.GHC.ExactPrint.Utils
                                                as EP
@@ -69,8 +70,8 @@ data Decl
 isInst InstanceD {} = True
 isInst _ = False
 
--- initSC :: SourceInfo -> SourceContext
-initSC (SourceInfo _ src rvs exports _) =
+initSourceContext :: SourceInfo -> SourceContext
+initSourceContext (SourceInfo _ src rvs exports _) =
   let modName   = fromMaybe "Main" $ getModuleName $ unLoc src
       decls     = collectDecls $ unLoc src
       exported  = collectExportedSym <$> exports
@@ -110,16 +111,19 @@ collectAllowRename modName decls exported =
       localsToRename   = allowRenameLocals modName decls topLevelToRename
   in  (topLevelToRename, localsToRename)
 
+funLocals FunD { fun_args = args, fun_vars = vars, fun_inner_decls = ds} =
+  (fmap mkVarNoQual <$> args) ++ vars ++ concatMap funLocalsArgs ds
+funLocals _ = []
+funLocalsArgs FunD { fun_args = args, fun_inner_decls = ds } = (fmap mkVarNoQual <$> args) ++ concatMap funLocalsArgs ds
+
+
+
 -- allowRenameLocals :: String -> [Decl] -> Maybe [Exported] -> [Loc Var]
 allowRenameLocals modName decls topLevelToRename =
   let allVars     = concatMap funLocals decls
       allowedVars = filter (allowToRenameVar modName topLevelToRename) allVars
   in  allowedVars
  where
-  funLocals FunD { fun_args = args, fun_vars = vars } =
-    (fmap mkVarNoQual <$> args) ++ vars
-  funLocals _ = []
-
   -- A simple variable is allowed to be renamed if:
   -- * it's has no qualifier (TODO: handle it separately)
   -- * it's qualifier == module name and it's in the `topLevelToRename` list
@@ -160,17 +164,6 @@ allowRenameTopLevel modName decls exps =
     | Var name (PQual modName) `elem` fs || Var name (PQual modName) `elem` cs
     = True
   isExported (_ : es) n = isExported es n
-
-{-  isExportedFun [] _ = False
-  isExportedFun (ExportedFun var : es) name | var == Var name (PQual modName) =
-    True
-  isExportedFun (_ : es) name = isExportedFun es name
-
-  isExportedCtr [] _ = False
-  isExportedCtr (ExportedTyCl { e_ctrs = cs, e_fields = fs } : es) name
-    | Var name (PQual modName) `elem` fs || Var name (PQual modName) `elem` cs
-    = True
-  isExportedCtr (_ : es) n = isExportedCtr es n-}
 
 --
 -- Note: all instances are exported in any case, but they're not

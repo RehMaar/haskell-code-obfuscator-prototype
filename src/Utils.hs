@@ -17,19 +17,19 @@ import System.IO (hPutStrLn, stderr)
 
 import Outputable as Out
 
-unique :: Ord a => [a] -> [a]
-unique = fmap head . group . sort
-
-putList :: Show a => [a] -> IO ()
-putList = putStrLn . intercalate "\n" . map show
-
-getModuleName :: GHC.HsModule GHC.GhcPs -> Maybe String
-getModuleName = fmap (GHC.moduleNameString . GHC.unLoc)  . GHC.hsmodName
-
+-- Printing for debug purposes
 showElem :: Out.Outputable p => p -> String
 showElem = Out.showSDocUnsafe . Out.ppr
 
 showL xs = intercalate "\n" (map show xs)
+
+putStrLnErr = hPutStrLn stderr
+
+unique :: Ord a => [a] -> [a]
+unique = fmap head . group . sort
+
+getModuleName :: GHC.HsModule GHC.GhcPs -> Maybe String
+getModuleName = fmap (GHC.moduleNameString . GHC.unLoc)  . GHC.hsmodName
 
 -- | Destruct Name into a name and its qualifier.
 destructName :: GHC.Name -> (String, Maybe String)
@@ -52,6 +52,7 @@ lookupGen f p (x:xs) y
   | f x y = Just (p x)
   | otherwise = lookupGen f p xs y
 
+-- TODO: maybe there are better places for these functions?
 createDecl :: String -> String -> HsDecl GhcPs
 createDecl name call = SG.funBind (fromString name) $ SG.match [] $ SG.var $ fromString call
 
@@ -62,5 +63,3 @@ addDecl d (HsModule n e i ds x y) = HsModule n e i (ds ++ [noLoc d]) x y
 
 addDeclWithSig :: HsDecl GhcPs -> HsDecl GhcPs -> HsModule GhcPs  -> HsModule GhcPs
 addDeclWithSig d s (HsModule n e i ds x y) = HsModule n e i (ds ++ [noLoc s, noLoc d]) x y
-
-putStrLnErr = hPutStrLn stderr

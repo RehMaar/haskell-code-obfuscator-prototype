@@ -71,7 +71,7 @@ evalObfuscate f seed = evalState f . initObfuscate seed
 
 -- TODO: fill used symbols with already used in source code
 initObfuscateCommon symbols range seed si = let
-    sctx = initSC si
+    sctx = initSourceContext si
   in OC sctx (si_parsed_source si) symbols (0, pred $ length symbols) range (mkStdGen seed) []
 
 initObfuscate = initObfuscateCommon defaultSymbols defaultRange

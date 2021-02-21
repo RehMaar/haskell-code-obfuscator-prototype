@@ -16,7 +16,7 @@ data Qual a
   -- ^ A qualification is presented in parsed source (parsed qual).
   | RQual a
   -- ^ A qualification is determened at renaming stage (renamed qual).
-  deriving (Show, Eq)
+  deriving (Show, Eq, Ord)
 
 isNoQual NoQual = True
 isNoQual _ = False
@@ -35,7 +35,7 @@ sameQualMod _ NoQual = False
 sameQualMod name q = name == getRealQual q
 
 data Var = Var { varname :: String, varqual :: Qual String }
-  deriving Eq
+  deriving (Ord, Eq)
 
 instance Show Var where
   show (Var n NoQual) = show n
@@ -77,10 +77,10 @@ instance Show TopLevelDef where
                          "\n-- Vars: " ++ show (lcelem <$> v)
 
 data Loc a = Loc { lcloc :: SrcSpan, lcelem :: a }
-  deriving (Eq, Functor)
+  deriving (Eq, Functor, Show, Ord)
 
-instance Show a => Show (Loc a) where
-  show (Loc l e) = "Loc {} " ++ show e
+-- instance Show a => Show (Loc a) where
+--   show (Loc l e) = "Loc {} " ++ show e
 
 toLoc a = Loc (getLoc a) (unLoc a)
 

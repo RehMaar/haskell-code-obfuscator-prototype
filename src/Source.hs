@@ -137,7 +137,6 @@ data SourceInfo
 handleModule (SimpleModule opts)  = handleModuleWith (getSourceSimple opts)
 handleModule (ProjectModule wdir) = handleModuleWith (getSourceProject wdir)
 
-
 handleModuleWith get path = do
   (tm', dflags, hsc_env) <- get path
   let tm      = fromMaybe (error "Module isn't typechecked") tm'
@@ -154,26 +153,14 @@ handleModuleWith get path = do
   let rvs'                  = fmap destructNameToOcc <$> rvs
   fixities <- getFixities hsc_env
   let src' = fixInfixRInParsedSource fixities rvs' src
-  -- let src' = src
-  -- let grp = apply addParens group
-  -- putStrLn "vvvv"
-  -- putStrLn $ showElem grp
-  -- putStrLn "^^^^"
 
   return $ SourceInfo { si_annotations     = ans
                       , si_parsed_source   = src'
                       , si_qualified_names = rvs
                       , si_exported        = exports
                       , si_dynflags        = dflags
-    -- , si_internals_ = (rm, hsc_env)
                       }
  where
-  -- To show operators fixity in renamed ast
-  addParens :: HsExpr GhcRn -> HsExpr GhcRn
-  addParens e@OpApp{}  = HsPar noExt (noLoc e)
-  addParens e@NegApp{} = HsPar noExt (noLoc e)
-  addParens x          = x
-
   collectLocatedRenamedNames :: HsGroup GhcRn -> [Located Name]
   collectLocatedRenamedNames = collect varName
 
@@ -191,6 +178,7 @@ getSourceProject wdir path =
     $ do
       -- TODO: construct cradle in memory
       --       Maybe possible to use implicit-hie-cradle package?
+      --       `loadImplicitCradle` doesn't work by some reason
         cradle <- Bios.loadCradle "./hie.yaml"
         copt   <- Bios.getCompilerOptions path cradle
         case copt of

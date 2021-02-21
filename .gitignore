@@ -1,2 +1,4 @@
 .stack-work/
 *~
+!test/resources/*.hs
+!test/resources/elements/*.hs
