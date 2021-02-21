@@ -55,7 +55,7 @@ library
     , syb >=0.5
   default-language: Haskell2010
 
-executable obfuscate
+executable obfuscate-exe
   main-is: Main.hs
   other-modules:
       Paths_haskell_code_obfuscator
