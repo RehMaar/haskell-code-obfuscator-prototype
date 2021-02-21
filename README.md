@@ -34,3 +34,39 @@ stack exec -- obfuscate-exe -w PROJECT_DIR PATH
 ```
 
 Note: need to have `hie.yaml` file in the main project directory.
+
+## Renaming 
+
+1. Local symbols renaming
+2. Imported symbols renaming
+3. Not imported record selectors renaming
+
+## Supported structural transformations
+
+1. Strings and chars are transformated into function applications.
+   ```
+   -- Source
+   testString = "Hello!"
+   -- Transformed
+   testString  = map toEnum [72, 101, 108, 108, 111, 33]
+   ```
+   Note: now we don't check if `Prelude.map` is hidden and redefined.
+2. Basic do-notation into lambda form.
+  ```
+  TODO
+  ```
+3. Add parens: ``1 + 2`` into `(1 + 2)`.
+4. Transform operator into applications: `1 + 2` into `(+) 1 2`.
+5. Transform `if` into `case`: `if True then 1 else 2` into `case True of { True -> 1; False -> 2}`.
+6. Transform a lambda with multiple arguments into lambdas with one argument: `\a b c ->` into `\a -> \b -> \c -> `.
+
+## TODO: Transformations
+
+7. 
+
+## TODO: User-friendly things
+
+1. Add options to disable some transformations
+2. Tests
+3. Better projects support
+4. ...

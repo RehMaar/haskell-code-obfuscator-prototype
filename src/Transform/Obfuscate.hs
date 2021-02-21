@@ -172,16 +172,27 @@ transformDoToLam = do
   update (L _ stmt) (Just k) = Just <$> stmtToExpr stmt k
   update (L _ stmt) Nothing  = Just <$> lastStmt stmt
 
-{-  foldToExpr :: [ExprLStmt GhcPs] -> HsExpr GhcPs
-  foldToExpr [e     ] = lastStmt (unLoc e)
-  foldToExpr (e : es) = stmtToExpr (unLoc e) (foldToExpr es)-}
-
   -- body >>= \pat -> k
   bind body pat k = SG.op body (fromString ">>=") (SG.lambda pat k)
 
   stmtToExpr :: ExprStmt GhcPs -> HsExpr GhcPs -> Obfuscate (HsExpr GhcPs)
   -- pat <- body ==> body >>= \pat -> {}
-  stmtToExpr (BindStmt _ pat body _ _) k = return $ bind (unLoc body) [pat] k
+  stmtToExpr (BindStmt _ pat@(XPat (L _ VarPat{})) body _ _) k = return $ bind (unLoc body) [pat] k
+  -- complex pat <- body
+  --   ==>
+  --     \_ -> body >>= \r -> case r of { True -> {l}; _ -> fail "" }
+  --
+  -- TODO:
+  --   Maybe, need add some exceptions, like for `Ctr a b c` (Constructor and VarPats inside)
+  --   Because some problems with fail (and MonadFail?) may occur.
+  stmtToExpr (BindStmt _ pat body _ _) k = do
+    freshName <- getNextFreshVar
+    let caseBody = case' (var $ fromString freshName) [match [pat] k, match [SG.wildP] (var "fail" SG.@@ SG.string "")]
+
+    let freshRdrName = GHC.mkRdrUnqual $ GHC.mkVarOcc freshName :: RdrName
+    let freshPat = VarPat noExt (noLoc freshRdrName)
+    return $ bind (unLoc body) [freshPat] caseBody
+
   -- let pat = body ==> (\pat -> {} ) body
   -- let fun => (\funname -> {}) (let fun in funname)
   stmtToExpr (LetStmt _ (L _ lbs)    ) k = foldLets k lbs
@@ -386,12 +397,12 @@ obfuscateNames = do
 
 obfuscateStructure :: Obfuscate ParsedSource
 obfuscateStructure = do
-  transformStringAndChars
+  -- transformStringAndChars
   transformDoToLam
-  applyTransformation addParens
-  applyTransformationCommon applyTopDown transformOpToApp
-  applyTransformation transformIfCase
-  applyTransformation transformMultiArgLam
+  -- applyTransformation addParens
+  -- applyTransformationCommon applyTopDown transformOpToApp
+  -- applyTransformation transformIfCase
+  -- applyTransformation transformMultiArgLam
   gets oc_parsed_source
 
 obfuscate = obfuscateWithSeed 0
@@ -402,3 +413,25 @@ obfuscateWithSeed = evalObfuscate obfuscate''
     obfuscate'' = do
       obfuscateNames
       obfuscateStructure
+
+-- Debug things
+showPat WildPat  {} = "WildPat  "
+showPat VarPat {} = "VarPat"
+showPat LazyPat  {} = "LazyPat  "
+showPat AsPat {} = "AsPat"
+showPat ParPat {} = "ParPat"
+showPat BangPat  {} = "BangPat  "
+showPat ListPat  {} = "ListPat  "
+showPat TuplePat {} = "TuplePat"
+showPat SumPat {} = "SumPat"
+showPat ConPatIn {} = "ConPatIn"
+showPat ConPatOut {} = "ConPatOut"
+showPat ViewPat {} = "ViewPat"
+showPat SplicePat {} = "SplicePat"
+showPat LitPat {} = "LitPat"
+showPat NPat    {} = "NPat    "
+showPat NPlusKPat {} = "NPlusKPat"
+showPat SigPat {} = "SigPat"
+showPat CoPat {} = "CoPat"
+showPat pat@(XPat {})
+ | XPat (L _ p) <- pat = "XPat: " <> showPat p
