@@ -1,5 +1,5 @@
 {-# LANGUAGE TupleSections, RankNTypes #-}
-module Transform.Query (
+module Transform.Internal.Query (
     -- Queries to collect some info into a list.
     collect, collectBut, collectBut',
     -- Queries to apply changes to a data structre.

@@ -1,6 +1,6 @@
-{-# LANGUAGE TypeFamilies #-}
-module Transform.Context
-      (initSourceContext, SourceContext(..), Exported(..), Decl(..), Con(..)) where
+{-# LANGUAGE TypeFamilies, RankNTypes #-}
+module Transform.Internal.Context
+       where
 
 import           Language.Haskell.GHC.ExactPrint.Utils
                                                as EP
@@ -21,10 +21,104 @@ import           Data.Maybe
 import           Data.List
 import           Control.Arrow                  ( first )
 
-import           Transform.Types
-import           Transform.Query
+import           Transform.Internal.Types
+import           Transform.Internal.Query
 import           Source
 import           Utils
+import Data.Typeable
+import Data.Data
+import Control.Monad.State
+import System.Random
+import Data.Char
+
+
+data TransformContext
+  = TC
+  { tc_source_ctx:: SourceContext
+  , tc_parsed_source :: ParsedSource
+  , tc_symbols :: [Char]
+  , tc_range_symbols :: (Int, Int)
+  , tc_range_name_len :: (Int, Int)
+  , tc_generator :: StdGen
+  , tc_used_symbols :: [String]
+  }
+
+type Transform a = State TransformContext a
+
+evalTransform f seed = evalState f . initTransform seed
+
+-- TODO: fill used symbols with already used in source code
+initTransformCommon symbols range seed si = let
+    sctx = initSourceContext si
+  in TC sctx (si_parsed_source si) symbols (0, pred $ length symbols) range (mkStdGen seed) []
+
+initTransform = initTransformCommon defaultSymbols defaultRange
+  where
+    defaultSymbols = ['A'..'Z'] ++ ['a'..'z']
+    defaultRange = (1, 10)
+
+setSource :: ParsedSource -> Transform ()
+setSource src = do
+  modify (\ctx -> ctx { tc_parsed_source = src })
+
+getNextFreshVar :: Transform String
+getNextFreshVar = do
+  name <- getNextFreshName
+  case name of
+    (n:ns) -> return (toLower n : ns)
+    []     -> error "getNextFreshVar: empty name"
+
+getNextFreshName :: Transform String
+getNextFreshName = do
+   wordLen <- getWordLen
+   name <- getName wordLen
+   flag <- isUsed name
+   if flag
+   then getNextFreshName
+   else return name
+  where
+    isUsed :: String -> Transform Bool
+    isUsed name = do
+      used <- gets tc_used_symbols
+      return $ name `elem` used
+
+
+    getName :: Int -> Transform String
+    getName 0 = return ""
+    getName wordLen = do
+      symb <- getSymbol
+      rest <- getName (pred wordLen)
+      return (symb:rest)
+
+    getSymbol = do
+      ctx <- get
+      idx <- getInt (tc_range_symbols ctx)
+      return $ tc_symbols ctx !! idx
+
+
+    getWordLen :: Transform Int
+    getWordLen = do
+      range <- gets tc_range_name_len
+      getInt range
+
+    getInt :: (Int, Int) -> Transform Int
+    getInt range = do
+      gen <- gets tc_generator
+      let (int, gen') = randomR range gen
+      modify (\ctx -> ctx { tc_generator = gen' })
+      return int
+
+applyTransformation :: Typeable a => (a -> a) -> Transform ()
+applyTransformation = applyTransformationCommon apply
+
+applyTransformationCommon
+  :: (Typeable a)
+  => (forall a b . (Data b, Typeable a) => (a -> a) -> b -> b)
+  -> (a -> a)
+  -> Transform ()
+applyTransformationCommon applier f = do
+  src <- gets tc_parsed_source
+  modify (\ctx -> ctx { tc_parsed_source = applier f src })
 
 data SourceContext
   = SC

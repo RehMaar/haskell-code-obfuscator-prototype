@@ -1,5 +1,6 @@
+{-# LANGUAGE TypeFamilies #-}
 module Utils where
-
+    
 import qualified GHC.SourceGen as SG
 import qualified GHC.SourceGen.Binds as SG
 
@@ -63,3 +64,25 @@ addDecl d (HsModule n e i ds x y) = HsModule n e i (ds ++ [noLoc d]) x y
 
 addDeclWithSig :: HsDecl GhcPs -> HsDecl GhcPs -> HsModule GhcPs  -> HsModule GhcPs
 addDeclWithSig d s (HsModule n e i ds x y) = HsModule n e i (ds ++ [noLoc s, noLoc d]) x y
+
+-- Debug things
+showPat WildPat  {} = "WildPat  "
+showPat VarPat {} = "VarPat"
+showPat LazyPat  {} = "LazyPat  "
+showPat AsPat {} = "AsPat"
+showPat ParPat {} = "ParPat"
+showPat BangPat  {} = "BangPat  "
+showPat ListPat  {} = "ListPat  "
+showPat TuplePat {} = "TuplePat"
+showPat SumPat {} = "SumPat"
+showPat ConPatIn {} = "ConPatIn"
+showPat ConPatOut {} = "ConPatOut"
+showPat ViewPat {} = "ViewPat"
+showPat SplicePat {} = "SplicePat"
+showPat LitPat {} = "LitPat"
+showPat NPat    {} = "NPat    "
+showPat NPlusKPat {} = "NPlusKPat"
+showPat SigPat {} = "SigPat"
+showPat CoPat {} = "CoPat"
+showPat pat@(XPat {})
+ | XPat (L _ p) <- pat = "XPat: " Prelude.<> showPat p

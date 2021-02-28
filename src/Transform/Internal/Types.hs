@@ -1,5 +1,5 @@
 {-# LANGUAGE DeriveFunctor #-}
-module Transform.Types where
+module Transform.Internal.Types where
 
 import GHC
 import SrcLoc as GHC

@@ -41,9 +41,9 @@ import qualified Outputable as Out
 import OneLinePrinter
 import Utils
 import Source
-import Transform.Types
-import Transform.Query
-import Transform.Context
+import Transform.Internal.Types
+import Transform.Internal.Query
+import Transform.Internal.Context
 
 import Debug.Trace
 

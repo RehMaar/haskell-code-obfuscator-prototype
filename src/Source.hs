@@ -48,7 +48,7 @@ import           Control.Monad.IO.Class
 import           Data.Generics                 as SYB
 
 import           Utils
-import           Transform.Query
+import           Transform.Internal.Query
 
 type FixityEnv = [(String, [(GHC.OccName, GHC.Fixity)])]
 
