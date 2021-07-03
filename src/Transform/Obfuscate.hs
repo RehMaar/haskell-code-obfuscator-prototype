@@ -56,6 +56,7 @@ import           Transform.Literal
 import           Transform.Function
 
 import           Debug.Trace
+import System.Directory (makeAbsolute)
 
 generateRenamings :: Transform [(String, String)]
 generateRenamings = do
@@ -99,3 +100,16 @@ obfuscateWithSeed = evalTransform obfuscate''
     obfuscate'' = do
       obfuscateNames
       obfuscateStructure
+
+obfuscateFileInProj arg seed file = obfuscateCommon (ProjectModule arg) seed file
+obfuscateFile       arg seed file = obfuscateCommon (SimpleModule arg) seed file
+
+obfuscateCommon mod seed path = do
+  absPath <- makeAbsolute path
+  si <- handleModule mod absPath
+  seed <- maybe randomIO return seed
+  let src = obfuscateWithSeed seed si
+  let dflags = si_dynflags si
+  let code = Out.showSDocOneLine dflags $ oneline (si_annotations si) $ unLoc src
+  -- let code = O.showSDoc dflags $ O.ppr src
+  putStrLn code

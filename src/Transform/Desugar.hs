@@ -61,7 +61,7 @@ transformDoToLam = do
   update (L _ stmt) Nothing  = Just <$> lastStmt stmt
 
   -- body >>= \pat -> k
-  bind body pat k = SG.op body (fromString ">>=") (SG.lambda pat k)
+  bind body pats k = SG.op body (fromString ">>=") (createLambda pats k)
 
   stmtToExpr :: ExprStmt GhcPs -> HsExpr GhcPs -> Transform (HsExpr GhcPs)
   -- pat <- body ==> body >>= \pat -> {}
@@ -105,7 +105,7 @@ transformDoToLam = do
         noLoc $ HsValBinds noExt $ ValBinds noExt (GHC.listToBag [noLoc fb]) []
       pat = VarPat noExt (noLoc funname)
     in
-      SG.lambda [pat] k
+      createLambda [pat] k
         SG.@@ HsLet noExt lbind (noLoc $ HsVar noExt $ noLoc funname)
   -- Case: let (Ctr args) = body => (\(Ctr args) -> {}) (let newname = body in newname)
   --
@@ -126,7 +126,7 @@ transformDoToLam = do
      let body' = noLoc $ createFunBind funName [] body :: LHsBindLR GhcPs GhcPs
      let bind = noLoc $ HsValBinds noExt $ ValBinds noExt (GHC.listToBag [body']) []
      let letBind = HsLet noExt bind (noLoc $ HsVar noExt $ noLoc funName)
-     return $ SG.lambda [pat] k SG.@@ letBind
+     return $ createLambda [pat] k SG.@@ letBind
 
   createFunBind name pats grhss
     = FunBind
@@ -146,6 +146,14 @@ transformDoToLam = do
     , m_ctxt = FunRhs { mc_fun = noLoc name, mc_fixity = GHC.Prefix, mc_strictness = NoSrcStrict}
     , m_pats = pats
     , m_grhss = grhss}
+
+  -- Create lambda, add parens in patterns when needed
+  createLambda :: [Pat'] -> HsExpr GhcPs -> HsExpr GhcPs
+  createLambda pats body = SG.lambda (patParens <$> pats) body
+    where
+      patParens x@(XPat y) = XPat (patParens <$> y)
+      patParens x@ParPat{} = x
+      patParens x = ParPat noExt x
 
 
 -- | Transform if-expression to case.
