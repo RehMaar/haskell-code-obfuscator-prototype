@@ -225,6 +225,8 @@ oneline ans (HsModule mname exports imports decls _ _) =
     processHeaderComments ans
     <+> onelineHead   mname exports
     <+> onelineImport imports
+    <+> text "{"
     <+> onelineDecls  decls
+    <+> text "}"
 
 showOneLine dynFlags ans mod = showSDocOneLine dynFlags (oneline ans mod)

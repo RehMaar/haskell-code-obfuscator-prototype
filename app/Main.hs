@@ -21,45 +21,67 @@ import Utils
 import System.Directory (makeAbsolute)
 import Options.Applicative
 
-data ObfTypeFlags
+data ObfFlagsModule
   = SimpleModuleFlags { ghcOpts :: String }
   | ProjectModuleFlags { projectWdir :: String }
-  | NoOpts
+  | NoModuleOpts
   deriving Show
 
 data ObfArgs
   = ObfArgs
   { file :: FilePath
   , seed  :: Maybe Int
-  , flags :: ObfTypeFlags
+  , moduleFlags :: ObfFlagsModule
+  , flags :: ApplyTrans
   }
   deriving Show
 
 programInfo :: ParserInfo ObfArgs
 programInfo = info (obfArgs <**> helper) desc
   where
-    obfArgs = ObfArgs <$> arg <*> getSeed <*> flags
+    obfArgs =
+     ObfArgs
+       <$> arg
+       <*> getSeed
+       <*> moduleFlags
+       <*> transformFlags
+
+    arg = argument str (metavar "FILE")
     getSeed = (Just <$> getSeed') <|> pure Nothing
     getSeed' = option auto
               ( long "seed"
              <> help "Seed for random generation"
              <> metavar "INT")
 
-
-    arg = argument str (metavar "FILE")
-    flags = simpleModuleFlags <|> projectModuleFlags <|> noOpts
-    noOpts = pure NoOpts
-    simpleModuleFlags = SimpleModuleFlags
-      <$> strOption
-          (long "ghc-options"
-           <> metavar "GHC_OPTIONS"
-           <> help "GHC options to compile the given module")
-    projectModuleFlags = ProjectModuleFlags
-      <$> strOption
-          (long "working-dir"
-          <> short 'w'
-          <> metavar "WDIR"
-          <> help "Path to a project directory")
+    moduleFlags = simpleModuleFlags <|> projectModuleFlags <|> noOpts
+      where
+        noOpts = pure NoModuleOpts
+        simpleModuleFlags = SimpleModuleFlags
+          <$> strOption
+              (long "ghc-options"
+               <> metavar "GHC_OPTIONS"
+               <> help "GHC options to compile the given module")
+        projectModuleFlags = ProjectModuleFlags
+          <$> strOption
+              (long "working-dir"
+              <> short 'w'
+              <> metavar "WDIR"
+              <> help "Path to a project directory")
+    transformFlags = allTrans <|> someTrans
+      where
+        allTrans = flag' defaultApplyTrans (long "all" <> help "Apply all transformations")
+        someTrans = ApplyTrans
+          <$> doRename
+          <*> doBasicStructure
+          <*> doStrings
+          where
+            doRename =
+              flag RenameNone RenameLocal (long "rename" <> help "Rename local variables")
+                <|> flag RenameNone RenameAll (long "rename-all" <> help "Rename local variables and imported symbols")
+            doBasicStructure =
+              flag True False(long "no-basic" <> help "Do not apply basic structural transformations")
+            doStrings =
+              flag False True (long "strings" <> help "Apply string transformation")
 
     desc = fullDesc
          <> progDesc "Description"
@@ -68,11 +90,12 @@ programInfo = info (obfArgs <**> helper) desc
 
 main = do
   flags <- execParser programInfo
+  putStrLn $ show flags
   handleFlags flags
   where
-    handleFlags (ObfArgs file seed (ProjectModuleFlags wdir)) = obfuscateFileInProj wdir seed file
-    handleFlags (ObfArgs file seed (SimpleModuleFlags opts)) = do
+    handleFlags (ObfArgs file seed (ProjectModuleFlags wdir) flags) = obfuscateFileInProj wdir seed file flags
+    handleFlags (ObfArgs file seed (SimpleModuleFlags opts) flags) = do
         case Util.toArgs opts of
-          Right args -> obfuscateFile args seed file
+          Right args -> obfuscateFile args seed file flags
           Left _ -> putStrLnErr "error: Unable to parse ghc options"
-    handleFlags (ObfArgs file seed NoOpts) = obfuscateFile [] seed file
+    handleFlags (ObfArgs file seed NoModuleOpts flags) = obfuscateFile [] seed file flags

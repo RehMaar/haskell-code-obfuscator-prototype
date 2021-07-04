@@ -58,6 +58,23 @@ import           Transform.Function
 import           Debug.Trace
 import System.Directory (makeAbsolute)
 
+data ApplyTrans
+  = ApplyTrans
+    { changeNames :: ApplyRenaming
+    , changeStructure :: Bool
+    , changeStrings :: Bool
+    }
+  deriving Show
+
+data ApplyRenaming
+  = RenameAll -- ^ Rename local symbols and imports
+  | RenameLocal
+  | RenameNone
+  deriving Show
+
+defaultApplyTrans :: ApplyTrans
+defaultApplyTrans = ApplyTrans RenameNone True True
+
 generateRenamings :: Transform [(String, String)]
 generateRenamings = do
   sc <- gets tc_source_ctx
@@ -73,42 +90,56 @@ generateRenamings = do
       rs   <- generateRenamings' ns
       return ((n, name):rs)
 
-obfuscateNames :: Transform ParsedSource
-obfuscateNames = do
+obfuscateNames :: Bool -> Transform ()
+obfuscateNames renameImports = do
   ctx <- get
   renamings <- generateRenamings
   let src1 = rename (tc_source_ctx ctx) renamings (tc_parsed_source ctx)
-  -- let src2 = renameImportedSymbols (tc_source_ctx ctx) renamings src1
-  setSource src1
-  return src1
+  let src2 = if not renameImports then src1 else renameImportedSymbols (tc_source_ctx ctx) renamings src1
+  setSource src2
 
-obfuscateStructure :: Transform ParsedSource
+obfuscateStrings :: Transform ()
+obfuscateStrings = do
+  transformStringAndChars
+
+obfuscateStructure :: Transform ()
 obfuscateStructure = do
-  -- transformStringAndChars
   transformDoToLam
-  -- applyTransformation addParens
-  -- applyTransformationCommon applyTopDown transformOpToApp
-  -- applyTransformation transformIfCase
-  -- applyTransformation transformMultiArgLam
-  gets tc_parsed_source
+  applyTransformation addParens
+  applyTransformationCommon applyTopDown transformOpToApp
+  applyTransformation transformIfCase
+  applyTransformation transformMultiArgLam
 
-obfuscate = obfuscateWithSeed 0
+obfuscate = obfuscateWithSeed defaultApplyTrans 0
 
-obfuscateWithSeed :: Int -> SourceInfo -> ParsedSource
-obfuscateWithSeed = evalTransform obfuscate''
+obfuscateWithSeed :: ApplyTrans -> Int -> SourceInfo -> ParsedSource
+obfuscateWithSeed ApplyTrans{..} = evalTransform obfuscate''
   where
     obfuscate'' = do
-      obfuscateNames
-      obfuscateStructure
+      case changeNames of
+        RenameNone -> pure ()
+        RenameLocal -> obfuscateNames False
+        RenameAll -> obfuscateNames True
+      when changeStrings $
+        obfuscateStrings
+      when changeStructure $
+        obfuscateStructure
+      gets tc_parsed_source
 
-obfuscateFileInProj arg seed file = obfuscateCommon (ProjectModule arg) seed file
-obfuscateFile       arg seed file = obfuscateCommon (SimpleModule arg) seed file
+obfuscateFileInProj
+  :: FilePath -> Maybe Int -> FilePath -> ApplyTrans -> IO ()
+obfuscateFileInProj args = obfuscateCommon (ProjectModule args)
 
-obfuscateCommon mod seed path = do
+obfuscateFile
+  :: [String] -> Maybe Int -> FilePath -> ApplyTrans -> IO ()
+obfuscateFile args = obfuscateCommon (SimpleModule args)
+
+obfuscateCommon :: ModuleType -> Maybe Int -> FilePath -> ApplyTrans -> IO ()
+obfuscateCommon mod seed path flags = do
   absPath <- makeAbsolute path
   si <- handleModule mod absPath
   seed <- maybe randomIO return seed
-  let src = obfuscateWithSeed seed si
+  let src = obfuscateWithSeed flags seed si
   let dflags = si_dynflags si
   let code = Out.showSDocOneLine dflags $ oneline (si_annotations si) $ unLoc src
   -- let code = O.showSDoc dflags $ O.ppr src

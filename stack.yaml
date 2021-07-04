@@ -44,8 +44,6 @@ packages:
 extra-deps:
 - hie-bios-0.7.5
 
-#@sha256:9e6fbf6d9d911799381f7ec1e2672c0c64aa5d07,11260
-
 # Override default flag values for local packages and extra-deps
 # flags: {}
 

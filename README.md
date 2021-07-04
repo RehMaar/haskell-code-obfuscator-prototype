@@ -6,21 +6,26 @@ unreadable for humans.
 ## Usage
 
 ```
-Usage: obfuscate-exe FILE [--seed INT] [--ghc-options GHC_OPTIONS | (-w|--working-dir WDIR)]
-
+Usage: obfuscate-exe FILE [--seed INT]
+                     [--ghc-options GHC_OPTIONS | (-w|--working-dir WDIR)]
+                     [--all | [--rename | --rename-all] [--no-basic] [--strings]]
+                                            
 Available options:
-   --seed INT                Seed for random name generation
-   --ghc-options GHC_OPTIONS GHC options to compile a module with
-   -w, --working-dir WDIR    Path to a project directory
-   -h, --help                Show this help text
+  --seed INT                Seed for random generation
+  --ghc-options GHC_OPTIONS GHC options to compile the given module
+  -w,--working-dir WDIR     Path to a project directory
+  --all                     Apply all transformations
+  --rename                  Rename local variables
+  --rename-all              Rename local variables and imported symbols
+  --no-basic                Do not apply basic structural transformations
+  --strings                 Apply string transformation
+  -h,--help                 Show this help text
 ```
-
-## Examples
 
 * Obfuscate a file: 
 
 ```
-stack exec -- obfuscate-exe FILE
+stack exec -- obfuscate-exe FILE --all
 ```
 
 * Obfuscate a file with options:
@@ -34,6 +39,26 @@ stack exec -- obfuscate-exe -w PROJECT_DIR PATH
 ```
 
 Note: need to have `hie.yaml` file in the main project directory.
+
+## Examples
+
+Original:
+```haskell
+module Main where
+
+testIf1 p x = if p then x else 10
+
+main = do
+  putStrLn $ show $ testIf1 True 1
+  putStrLn $ show $ testIf1 False undefined
+```
+
+Result:
+```haskell
+module Main where {testIf1 stv xumiZi = case stv of { True -> xumiZi; False -> 10 }; 
+main = (((>>=) ((((($) (putStrLn)) (((($) (show)) (testIf1 True 1))))))) 
+((\ (_) -> ((($) (putStrLn)) (((($) (show)) (testIf1 False undefined)))))));}
+```
 
 ## Renaming 
 
