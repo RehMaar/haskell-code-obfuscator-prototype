@@ -11,5 +11,5 @@ transformMultiArgLam (HsLam _ mg)
   , Match { m_ctxt = LambdaExpr, m_pats = pats, m_grhss = gs } <- match
   , GRHSs { grhssGRHSs = [L _ g] } <- gs
   , GRHS _ _ (L _ expr) <- g
-  = foldr (\pat expr -> lambda [pat] expr) expr pats
+  = foldr (\(L _ pat) expr -> lambda [pat] expr) expr pats
 transformMultiArgLam x = x

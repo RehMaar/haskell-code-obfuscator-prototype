@@ -30,6 +30,8 @@ import           GHC.Paths                      ( libdir )
 import           DynFlags
 import           TcEvidence                     ( HsWrapper(WpHole) )
 
+import Utils
+
 -- | Transform do-notation into lambda form.
 --
 -- Example 1:
@@ -65,7 +67,7 @@ transformDoToLam = do
 
   stmtToExpr :: ExprStmt GhcPs -> HsExpr GhcPs -> Transform (HsExpr GhcPs)
   -- pat <- body ==> body >>= \pat -> {}
-  stmtToExpr (BindStmt _ pat@(XPat (L _ VarPat{})) body _ _) k = return $ bind (unLoc body) [pat] k
+  stmtToExpr (BindStmt _ pat@(L _ VarPat{}) body _ _) k = return $ bind (unLoc body) [pat] k
   -- complex pat <- body
   --   ==>
   --     \_ -> body >>= \r -> case r of { True -> {l}; _ -> fail "" }
@@ -73,19 +75,20 @@ transformDoToLam = do
   -- TODO:
   --   Maybe, need add some exceptions, like for `Ctr a b c` (Constructor and VarPats inside)
   --   Because some problems with fail (and MonadFail?) may occur.
-  stmtToExpr (BindStmt _ pat body _ _) k = do
+  stmtToExpr (BindStmt _ pat' body _ _) k = do
+    let pat = unLoc pat'
     freshName <- getNextFreshVar
     let caseBody = case' (var $ fromString freshName) [match [pat] k, match [SG.wildP] (var "fail" SG.@@ SG.string "")]
 
     let freshRdrName = GHC.mkRdrUnqual $ GHC.mkVarOcc freshName :: RdrName
-    let freshPat = VarPat noExt (noLoc freshRdrName)
+    let freshPat = noLoc $ VarPat noExt (noLoc freshRdrName)
     return $ bind (unLoc body) [freshPat] caseBody
 
   -- let pat = body ==> (\pat -> {} ) body
   -- let fun => (\funname -> {}) (let fun in funname)
   stmtToExpr (LetStmt _ (L _ lbs)    ) k = foldLets k lbs
   -- body => body >>= \_ -> {}
-  stmtToExpr (BodyStmt _ body _ _    ) k = return $ bind (unLoc body) [SG.wildP] k
+  stmtToExpr (BodyStmt _ body _ _    ) k = return $ bind (unLoc body) [noLoc SG.wildP] k
 
   stmtToExpr (LastStmt _ body _ _    ) k = error "What case?"
 
@@ -103,7 +106,7 @@ transformDoToLam = do
     let
       lbind =
         noLoc $ HsValBinds noExt $ ValBinds noExt (GHC.listToBag [noLoc fb]) []
-      pat = VarPat noExt (noLoc funname)
+      pat = noLoc $ VarPat noExt (noLoc funname)
     in
       createLambda [pat] k
         SG.@@ HsLet noExt lbind (noLoc $ HsVar noExt $ noLoc funname)
@@ -148,11 +151,12 @@ transformDoToLam = do
     , m_grhss = grhss}
 
   -- Create lambda, add parens in patterns when needed
-  createLambda :: [Pat'] -> HsExpr GhcPs -> HsExpr GhcPs
+  createLambda :: [LPat GhcPs] -> HsExpr GhcPs -> HsExpr GhcPs
   createLambda pats body = SG.lambda (patParens <$> pats) body
     where
-      patParens x@(XPat y) = XPat (patParens <$> y)
-      patParens x@ParPat{} = x
+      -- patParens x@(XPat y) = XPat (patParens <$> y)
+      patParens :: LPat GhcPs -> Pat GhcPs
+      patParens (L _ x@ParPat{}) = x
       patParens x = ParPat noExt x
 
 

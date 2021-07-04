@@ -95,7 +95,7 @@ onelineDecls = hsep . separate semi  . map (ol_decl . unLoc)
       in opat <+> ol_grhss con grhss
 
     -- TODO: Strictness
-    ol_fun :: HsMatchContext RdrName-> [Pat GhcPs] -> (SDoc, SDoc)
+    ol_fun :: HsMatchContext RdrName-> [LPat GhcPs] -> (SDoc, SDoc)
     ol_fun (FunRhs fn fixity _) pat | fixity == Prefix = (ol_prefix pat (unLoc fn), equals)
                                     | fixity == Infix  = (ol_infix  pat (unLoc fn), equals)
     ol_fun CaseAlt (p:_) = (ol_pat p, arrow)
@@ -124,7 +124,7 @@ onelineDecls = hsep . separate semi  . map (ol_decl . unLoc)
     ol_stmt :: Stmt GhcPs (LHsExpr GhcPs) -> SDoc
     ol_stmt (BodyStmt _ expr _ _) = ol_expr $ unLoc expr
     ol_stmt (LetStmt _ lb) = text "let" <+> ol_lbinds (unLoc lb)
-    ol_stmt (BindStmt _ pat body _ _) = ol_pat (unLoc pat) <+> larrow <+> ol_expr (unLoc body)
+    ol_stmt (BindStmt _ pat body _ _) = ol_pat pat <+> larrow <+> ol_expr (unLoc body)
     ol_stmt x = error $ "Unhandled stmt: " ++ showElem x
 
     ol_prefix :: [LPat GhcPs] -> RdrName -> SDoc
@@ -135,6 +135,7 @@ onelineDecls = hsep . separate semi  . map (ol_decl . unLoc)
     ol_infix (p1:p2:ps) fn = (lparen <+> ol_infix [p1, p2] fn <+> rparen) <+> ol_pats ps
 
     ol_pats ps = hsep (map ppr ps)
+    ol_pat :: LPat GhcPs -> SDoc
     ol_pat = ppr
 
     ol_expr :: HsExpr GhcPs -> SDoc
@@ -179,7 +180,8 @@ onelineDecls = hsep . separate semi  . map (ol_decl . unLoc)
     ol_expr_do :: HsStmtContext Name -> [LStmt GhcPs (LHsExpr GhcPs)] -> SDoc
     ol_expr_do DoExpr stmts = hsep (punctuate semi (map (ol_stmt . unLoc) stmts))
     ol_expr_do ListComp stmts = ol_expr_list_comp stmts
-    ol_expr_do x _ = error $ "HsDo: " ++ showSDocUnsafe (ppr x)
+    -- TODO: I saw Outputable instance for HsStmtContext with my own eyes!
+    ol_expr_do _ _ = error $ "HsDo: Unsupported element"  -- ++ showSDocUnsafe (ppr x)
 
     ol_expr_list_comp stmts
       | Just (quals, L _ (LastStmt _ body _ _)) <- GHC.Util.snocView stmts

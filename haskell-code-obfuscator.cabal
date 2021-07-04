@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 4d9b6df0ce5e3f3c258f7e1033f7ec49f0796f153042958a11c41b5ccdb4a82a
+-- hash: 3f55fab95a6282ea10e77f03f22c365c59b3d9b7362e9ece37dda9cabb979218
 
 name:           haskell-code-obfuscator
 version:        0.1.0.0
@@ -29,11 +29,14 @@ library
   exposed-modules:
       OneLinePrinter
       Source
-      Transform.Context
+      Transform.Desugar
+      Transform.Function
+      Transform.Internal.Context
+      Transform.Internal.Query
+      Transform.Internal.Types
+      Transform.Literal
       Transform.Obfuscate
-      Transform.Query
       Transform.Rename
-      Transform.Types
       Utils
   other-modules:
       Paths_haskell_code_obfuscator

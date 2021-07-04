@@ -18,6 +18,9 @@ import System.IO (hPutStrLn, stderr)
 
 import Outputable as Out
 
+noExt :: NoExtField
+noExt = noExtField
+
 -- Printing for debug purposes
 showElem :: Out.Outputable p => p -> String
 showElem = Out.showSDocUnsafe . Out.ppr
