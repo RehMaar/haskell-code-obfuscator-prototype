@@ -75,6 +75,7 @@ Note: need to have `hie.yaml` file in the main project directory.
 
 ## TODO: User-friendly things
 
+0. Transform expressions without modules
 1. Add options to disable some transformations
 2. Tests
 3. Better projects support

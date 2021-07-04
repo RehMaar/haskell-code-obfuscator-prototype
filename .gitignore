@@ -2,3 +2,6 @@
 *~
 !test/resources/*.hs
 !test/resources/elements/*.hs
+*.o
+*.hi
+*.ast

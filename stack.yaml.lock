@@ -5,15 +5,15 @@
 
 packages:
 - completed:
-    hackage: hie-bios-0.7.1@sha256:254a0359fa63c2be84f7123609811fa5ce204618fc9ea8eb1ba085ec3ef310f2,11260
+    hackage: hie-bios-0.7.5@sha256:17ce0a240d266affe67f4ea47f15033af4be403116365fad468848ea0b6c95f8,11311
     pantry-tree:
-      size: 11225
-      sha256: 7f0522db12376e203189b37e7e99bff7fdf70a9fa24fdfe869f441dbcd60c077
+      size: 11525
+      sha256: 540d4cb6e13e12b7b67b03ccde58cfda3dd461ecfb9c41da454ebb145da00c3a
   original:
-    hackage: hie-bios-0.7.1@sha256:254a0359fa63c2be84f7123609811fa5ce204618fc9ea8eb1ba085ec3ef310f2,11260
+    hackage: hie-bios-0.7.5
 snapshots:
 - completed:
-    size: 532386
-    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/16/17.yaml
-    sha256: d3ee1ae797cf63189c95cf27f00700304946c5cb3c1e6a82001cd6584a221e1b
-  original: lts-16.17
+    size: 585393
+    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/18/0.yaml
+    sha256: c632012da648385b9fa3c29f4e0afd56ead299f1c5528ee789058be410e883c0
+  original: lts-18.0
