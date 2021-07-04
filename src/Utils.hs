@@ -68,6 +68,9 @@ addDecl d (HsModule n e i ds x y) = HsModule n e i (ds ++ [noLoc d]) x y
 addDeclWithSig :: HsDecl GhcPs -> HsDecl GhcPs -> HsModule GhcPs  -> HsModule GhcPs
 addDeclWithSig d s (HsModule n e i ds x y) = HsModule n e i (ds ++ [noLoc s, noLoc d]) x y
 
+addImport :: ImportDecl GhcPs -> HsModule GhcPs -> HsModule GhcPs
+addImport im hsmod@HsModule { hsmodImports = imports } = hsmod { hsmodImports = imports ++ [noLoc im] }
+
 -- Debug things
 showPat WildPat  {} = "WildPat  "
 showPat VarPat {} = "VarPat"

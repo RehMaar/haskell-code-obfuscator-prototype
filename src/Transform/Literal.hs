@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Transform.Literal where
 
 import           GHC
@@ -11,6 +12,7 @@ import           Data.Generics                 as SYB
 import Data.String
 import Utils
 import Control.Monad.State
+import Data.Char
 
 -- | Transform strings and chars.
 --
@@ -19,53 +21,48 @@ import Control.Monad.State
 -- Maybe, there's better solutions.
 --
 -- TODO: bug with overloaded literals
+-- TODO: decide when use WithChr and when WithEnum
 transformStringAndChars :: Transform ()
 transformStringAndChars = do
   ctx <- get
   let src = tc_parsed_source ctx
   freeNameToChar <- getNextFreshVar
-  modify (\ctx -> ctx { tc_parsed_source = transform freeNameToChar src })
+  let transform' = transformWithChr freeNameToChar
+  modify (\ctx -> ctx { tc_parsed_source = transform' src })
  where
-  transform :: String -> ParsedSource -> ParsedSource
-  transform freeName src = addIfChanged freeName $ do
-    src <- applyButM stopTransformString (transformStringM freeName) src
-    applyButM stopTransformString (transformCharM freeName) src
+  -- use `varName` as variable and declaration
+  transformWithEnum varName =
+    transform
+      (transformWithEnumHelperDecl varName)
+      (transformCharWithEnum varName)
+      (transformStringWithEnum varName)
 
-  addIfChanged freeName result
+  -- use `freeName` as Module name
+  transformWithChr freeName =
+    transform
+      (transformWithChrHelperImport name)
+      (transformCharWithChr name')
+      (transformStringWithChr name')
+    where
+      name = let (n:ns) = freeName in toUpper n : ns
+      name' = name <> ".chr"
+
+  -- transform :: String -> ParsedSource -> ParsedSource
+  transform helper transformString transformChar src = addIfChanged helper $ do
+    src <- applyButM stopTransformString transformString src
+    applyButM stopTransformString transformChar src
+
+  addIfChanged helper result
     | isChanged result
-    = addDeclWithSig decl sig <$> fromChanged result
+    = helper <$> fromChanged result
     | otherwise
     = fromChanged result
-    where
-      decl = createDecl freeName "toEnum"
-      sig = SG.typeSig (fromString freeName) (createVar "Int" SG.--> createVar "Char")
 
   -- This approach doesn't work as intended for some reason!
   -- transformString :: Data a => a -> Changed a
   -- transformString = return `extM`
   --                   transformCharM `extM`
   --                   transformStringM freeName
-
-  -- 'c' -> (toChar n)
-  transformCharM :: String -> HsExpr GhcPs -> Changed (HsExpr GhcPs)
-  transformCharM freeName (HsLit _ (HsChar _ chr)) =
-    changed $ createVar freeName SG.@@ SG.int (toInteger $ fromEnum chr)
-  transformCharM _ x = unchanged x
-
-  --
-  -- TODO:
-  --  1. `map` may be hidden!
-  --  2. Need to obfuscate `map` also!
-  --
-  -- Example:
-  --   "str" -> [chr1, chr2, chr3]
-  --         -> (map toChar [int1, int2, int3])
-  transformStringM :: String -> HsExpr GhcPs -> Changed (HsExpr GhcPs)
-  transformStringM freeName e@(HsLit _ (HsString _ str)) =
-    let lst  = listToHsList $ stringToList (GHC.unpackFS str)
-        fn   = SG.var (fromString "map") SG.@@ SG.var (fromString freeName)
-    in  changed $ SG.par $ fn SG.@@ lst
-  transformStringM _ x = unchanged x
 
   stopTransformString :: GenericQ Bool
   stopTransformString = const False `extQ`
@@ -80,7 +77,64 @@ transformStringAndChars = do
   stopTransformStringOverLit _         = False
 
   listToHsList :: [Int] -> HsExpr GhcPs
-  listToHsList = SG.list . map (SG.int . toInteger)
+  listToHsList = listToHsList' id
+
+  listToHsList' f = SG.list . map (f . SG.int . toInteger)
 
   stringToList ""       = []
   stringToList (x : xs) = fromEnum x : stringToList xs
+
+  --------------------------------------------------------------
+  -- Transformation using Data.Char.chr
+  --------------------------------------------------------------
+
+  -- 'c' -> Data.Char.chr n
+  transformCharWithChr :: String -> HsExpr GhcPs -> Changed (HsExpr GhcPs)
+  transformCharWithChr name (HsLit _ (HsChar _ chr)) =
+    changed $ createVar name  SG.@@ SG.int (toInteger $ fromEnum chr)
+  transformCharWithChr _ x = unchanged x
+
+  -- "str" -> [Data.Char.chr n, Data.Char.chr n]
+  transformStringWithChr :: String -> HsExpr GhcPs -> Changed (HsExpr GhcPs)
+  transformStringWithChr name e@(HsLit _ (HsString _ str)) =
+    changed $ listToHsList' f $ stringToList (GHC.unpackFS str)
+    where f = (createVar name SG.@@)
+  transformStringWithChr _ x = unchanged x
+
+  -- add import qualified Data.Char as FreeName (chr)
+  transformWithChrHelperImport name = addImport im
+    where im = qualified' $ import' "Data.Char" `as'` name' `exposing` [var "chr"]
+          name' = fromString name
+
+  --------------------------------------------------------------
+  -- Transformation using adding a declaration and Prelude.map
+  --------------------------------------------------------------
+  -- 'c' -> (toChar n)
+  transformCharWithEnum :: String -> HsExpr GhcPs -> Changed (HsExpr GhcPs)
+  transformCharWithEnum freeName (HsLit _ (HsChar _ chr)) =
+    changed $ createVar freeName SG.@@ SG.int (toInteger $ fromEnum chr)
+  transformCharWithEnum _ x = unchanged x
+
+  --
+  -- TODO:
+  --  1. `map` may be hidden!
+  --  2. Need to obfuscate `map` also!
+  --
+  -- Example:
+  --   "str" -> [chr1, chr2, chr3]
+  --         -> (map toChar [int1, int2, int3])
+  transformStringWithEnum :: String -> HsExpr GhcPs -> Changed (HsExpr GhcPs)
+  transformStringWithEnum freeName e@(HsLit _ (HsString _ str)) =
+    let lst  = listToHsList $ stringToList (GHC.unpackFS str)
+        fn   = SG.var (fromString "map") SG.@@ SG.var (fromString freeName)
+    in  changed $ SG.par $ fn SG.@@ lst
+  transformStringWithEnum _ x = unchanged x
+
+  --
+  -- toChar :: Int -> Char
+  -- toChar = toEnum
+  --
+  transformWithEnumHelperDecl freeName = addDeclWithSig decl sig
+    where
+      decl = createDecl freeName "toEnum"
+      sig = SG.typeSig (fromString freeName) (createVar "Int" SG.--> createVar "Char")

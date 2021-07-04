@@ -76,6 +76,7 @@ main = (((>>=) ((((($) (putStrLn)) (((($) (show)) (testIf1 True 1)))))))
    testString  = map toEnum [72, 101, 108, 108, 111, 33]
    ```
    Note: now we don't check if `Prelude.map` is hidden and redefined.
+   Note: maybe there are better ways to obfuscate strings.
 2. Basic do-notation into lambda form.
   ```
   TODO
@@ -95,6 +96,53 @@ main = (((>>=) ((((($) (putStrLn)) (((($) (show)) (testIf1 True 1)))))))
 * Insert randomly generated definitions for distraction
 * Eta-expansion (`f` into `\x -> f x`).
 * Nice place for ideas: https://tigress.wtf/transformations.html
+
+## TODO: Transform programs to bottles:
+
+It's possible to transform haskell programs to pictures like that. [Like in perl](https://metacpan.org/dist/Acme-EyeDrops/view/lib/Acme/EyeDrops.pm).
+
+Original:
+```haskell
+module Main where
+
+testIf1 p x = if p then x else 10
+
+main = do
+  putStrLn $ show $ testIf1 True 1
+  putStrLn $ show $ testIf1 False undefined
+```
+
+Result:
+```haskell
+module
+Main ( 
+main ) 
+where 
+{ 
+    zJSj
+    gwww
+    wwww
+    = if 
+    gwww
+    then 
+    wwww 
+    else 
+  10; main 
+ = do { aaa
+$ show $ zJSj
+True 1; aaa $
+show $ zJSj f
+undefined };f
+= False;  aaa
+= putStrLn; x
+= (); y = ();
+xxxxxxxxxxx =
+(); xxxxxxxxx
+= xxxxxxxxxxx
+; xxxxxxx = 1
+; q = xxxxxxx
+; qwe = 123;}
+```
 
 ## TODO: De-obfuscation
 

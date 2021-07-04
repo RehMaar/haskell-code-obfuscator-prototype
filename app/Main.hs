@@ -90,7 +90,6 @@ programInfo = info (obfArgs <**> helper) desc
 
 main = do
   flags <- execParser programInfo
-  putStrLn $ show flags
   handleFlags flags
   where
     handleFlags (ObfArgs file seed (ProjectModuleFlags wdir) flags) = obfuscateFileInProj wdir seed file flags

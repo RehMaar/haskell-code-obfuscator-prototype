@@ -94,8 +94,9 @@ obfuscateNames :: Bool -> Transform ()
 obfuscateNames renameImports = do
   ctx <- get
   renamings <- generateRenamings
-  let src1 = rename (tc_source_ctx ctx) renamings (tc_parsed_source ctx)
-  let src2 = if not renameImports then src1 else renameImportedSymbols (tc_source_ctx ctx) renamings src1
+  let src = tc_parsed_source ctx
+  let src1 = rename (tc_source_ctx ctx) renamings src
+  let src2 = renameImportedSymbols (tc_source_ctx ctx) renamings src1
   setSource src2
 
 obfuscateStrings :: Transform ()
@@ -141,6 +142,6 @@ obfuscateCommon mod seed path flags = do
   seed <- maybe randomIO return seed
   let src = obfuscateWithSeed flags seed si
   let dflags = si_dynflags si
-  let code = Out.showSDocOneLine dflags $ oneline (si_annotations si) $ unLoc src
-  -- let code = O.showSDoc dflags $ O.ppr src
+  -- let code = Out.showSDocOneLine dflags $ oneline (si_annotations si) $ unLoc src
+  let code = Out.showSDoc dflags $ Out.ppr src
   putStrLn code

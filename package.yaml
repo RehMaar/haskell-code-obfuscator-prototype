@@ -36,6 +36,8 @@ dependencies:
 
 default-extensions:
 - RecordWildCards
+- TypeFamilies
+- GADTs
 
 library:
   source-dirs: src
