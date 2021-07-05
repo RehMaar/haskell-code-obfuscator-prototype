@@ -1,10 +1,19 @@
 {-# LANGUAGE TypeFamilies, FlexibleInstances, OverloadedStrings, RankNTypes #-}
-module Transform.Desugar where
-
+module Transform.Desugar
+  ( transformDoToLam
+  , transformIfCase
+  , transformArgsToLam
+  , transformMultiArgLam
+  , transformOpToApp
+  , addParens
+  )
+  where
+    
 import GHC
 import Transform.Internal.Context
 import Transform.Internal.Types
 import Transform.Internal.Query
+import Transform.Internal.Generate
 
 import GHC.SourceGen                 as SG
 import GHC.SourceGen.Binds           as SG
@@ -31,6 +40,7 @@ import           DynFlags
 import           TcEvidence                     ( HsWrapper(WpHole) )
 
 import Utils
+import Data.Functor
 
 -- | Transform do-notation into lambda form.
 --
@@ -126,39 +136,10 @@ transformDoToLam = do
   bindToLamOrLet PatBind { pat_lhs = pat, pat_rhs = body } k = do
      freshName <- getNextFreshVar
      let funName = GHC.mkRdrUnqual $ GHC.mkVarOcc freshName :: RdrName
-     let body' = noLoc $ createFunBind funName [] body :: LHsBindLR GhcPs GhcPs
+     let body' = noLoc $ funBind_ funName [] body :: LHsBindLR GhcPs GhcPs
      let bind = noLoc $ HsValBinds noExt $ ValBinds noExt (GHC.listToBag [body']) []
      let letBind = HsLet noExt bind (noLoc $ HsVar noExt $ noLoc funName)
      return $ createLambda [pat] k SG.@@ letBind
-
-  createFunBind name pats grhss
-    = FunBind
-    { fun_ext = noExt
-    , fun_id = noLoc name
-    , fun_matches = createMatchGroup name pats grhss
-    , fun_co_fn = WpHole
-    , fun_tick = []}
-  createMatchGroup name pats grhss
-    = MG
-    { mg_ext = noExt
-    , mg_alts = noLoc [noLoc $ createMatch name pats grhss]
-    , mg_origin = GHC.Generated }
-  createMatch name pats grhss
-    = Match
-    { m_ext = noExt
-    , m_ctxt = FunRhs { mc_fun = noLoc name, mc_fixity = GHC.Prefix, mc_strictness = NoSrcStrict}
-    , m_pats = pats
-    , m_grhss = grhss}
-
-  -- Create lambda, add parens in patterns when needed
-  createLambda :: [LPat GhcPs] -> HsExpr GhcPs -> HsExpr GhcPs
-  createLambda pats body = SG.lambda (patParens <$> pats) body
-    where
-      -- patParens x@(XPat y) = XPat (patParens <$> y)
-      patParens :: LPat GhcPs -> Pat GhcPs
-      patParens (L _ x@ParPat{}) = x
-      patParens x = ParPat noExt x
-
 
 -- | Transform if-expression to case.
 transformIfCase :: HsExpr GhcPs -> HsExpr GhcPs
@@ -188,3 +169,93 @@ addParens :: HsExpr GhcPs -> HsExpr GhcPs
 addParens e@OpApp{}  = HsPar noExt (noLoc e)
 addParens e@NegApp{} = HsPar noExt (noLoc e)
 addParens x          = x
+
+
+-- | Transform multi-argument lambda to nested lambdas
+transformMultiArgLam :: HsExpr GhcPs -> HsExpr GhcPs
+transformMultiArgLam (HsLam _ mg)
+  | MG { mg_alts = L _ [L _ match] } <- mg
+  , Match { m_ctxt = LambdaExpr, m_pats = pats, m_grhss = gs } <- match
+  , GRHSs { grhssGRHSs = [L _ g] } <- gs
+  , GRHS _ _ (L _ expr) <- g
+  = foldr (\(L _ pat) expr -> lambda [pat] expr) expr pats
+transformMultiArgLam x = x
+
+
+--
+-- 1. f x y = undefined => f = \x y -> undefined
+-- 2. f 3 4 = undefined => f = \x y -> case (x, y) of { (3, 4) undefined }
+-- 3.
+--   f [] = undefined
+--   f (x:xs) = undefined
+--   =>
+--   f = \xs -> case xs of { ... }
+--
+-- Algo:
+-- 1. Find patterns in all cases
+-- 2. For each position create new varaible
+transformArgsToLam :: Transform ()
+transformArgsToLam = do
+  src <- getSource
+  src <- applyM transform src
+  setSource src
+  where
+    hasArguments _ = True
+
+    transform :: HsBind GhcPs -> Transform (HsBind GhcPs)
+    transform f@FunBind{..}
+      | hasArguments f = do
+        let name = unLoc fun_id
+        new_matches <- newMatches name fun_matches
+        pure $ f { fun_matches = new_matches }
+    transform x = pure x
+
+    newMatches :: RdrName -> MatchGroup GhcPs (LHsExpr GhcPs) -> Transform (MatchGroup GhcPs (LHsExpr GhcPs))
+    newMatches name mg@MG {..} = do
+      new_alts <- newAlts name $ (unLoc mg_alts)
+      pure $ mg { mg_alts = noLoc [noLoc new_alts] }
+
+    newAlts :: RdrName -> [LMatch GhcPs (LHsExpr GhcPs)] -> Transform (Match GhcPs (LHsExpr GhcPs))
+    newAlts name alts = do
+      let arguments = argPats alts
+      vars <- replicateM (length $ fst $ head arguments) getNextFreshVar
+      let pats = map (noLoc . VarPat noExt . noLoc . GHC.mkVarUnqual . GHC.mkFastString) vars
+      pure $ match_ (funCtx_ name) pats $ body_ vars arguments
+      where
+        -- [strings] -> [(pats, grhss)] ->
+        body_ :: [String] -> [([LPat GhcPs], GRHSs GhcPs (LHsExpr GhcPs))] -> GRHSs GhcPs (LHsExpr GhcPs)
+        body_ vars args = grhss__ [noLoc grhs]
+          where
+            -- case (x1, x2, ..) of { (pat1, pat2, ..) -> body }
+            -- case tuples of matchGroup
+            grhs :: GRHS GhcPs (LHsExpr GhcPs)
+            grhs =
+              grhs_ [] $ HsCase noExt (tuples vars) $
+                           matchGroup_ caseCtx_ matches
+              where
+                 matches :: [LMatch GhcPs (LHsExpr GhcPs)]
+                 matches = args <&> \(pats, body) ->
+                             noLoc $ match_ caseCtx_ (tuples' pats) body
+
+            tuples :: [String] -> LHsExpr GhcPs
+            tuples [x] = noLoc $ var_ x
+            tuples xs = noLoc $ tuple (var_ <$> xs)
+
+            tuples' :: [LPat GhcPs] -> [LPat GhcPs]
+            tuples' [x] = [x]
+            tuples' xs = [noLoc $ tuple $ unLoc <$> xs]
+
+    argPats :: [LMatch GhcPs (LHsExpr GhcPs)] -> [([LPat GhcPs], GRHSs GhcPs (LHsExpr GhcPs))]
+    argPats = map (argPats' . unLoc)
+    argPats' (Match _ _ pats body) = (pats, body)
+
+    patToCase newName cases = undefined
+
+-- Create lambda, add parens in patterns when needed
+createLambda :: [LPat GhcPs] -> HsExpr GhcPs -> HsExpr GhcPs
+createLambda pats body = SG.lambda (patParens <$> pats) body
+  where
+    -- patParens x@(XPat y) = XPat (patParens <$> y)
+    patParens :: LPat GhcPs -> Pat GhcPs
+    patParens (L _ x@ParPat{}) = x
+    patParens x = ParPat noExt x

@@ -85,14 +85,27 @@ main = (((>>=) ((((($) (putStrLn)) (((($) (show)) (testIf1 True 1)))))))
 4. Transform operator into applications: `1 + 2` into `(+) 1 2`.
 5. Transform `if` into `case`: `if True then 1 else 2` into `case True of { True -> 1; False -> 2}`.
 6. Transform a lambda with multiple arguments into lambdas with one argument: `\a b c ->` into `\a -> \b -> \c -> `.
+7. Function arguments to lambda and case.
+```haskell
+-- Original
+map' _ [] = []
+map' f (x:xs) = f x : map' f xs
+-- Result
+map' z v
+  = case (z, v) of
+      (_, []) -> []
+      (f, (x : xs)) -> (((:) (f x)) (map' f xs))
+```
+
+## TODO: Rewrite core system
 
 ## TODO: Transformations
 
+* Number literals into something ugly (from hex to something like `(f.i.a.d).i where i = 0, f n = ..`).
+* Get rid of pattern matching as much as possible (use/generate eliminators and so on).
+  * Use something like `bool` instead of `if`.
+* Generate eliminators for `case of`.
 * Inlining.
-* Number literals into hex.
-* Guards into case. Note: symantic problems with this transformation.
-* Function arguments to lambda. Note: only when `guards into case` enabled. 
-* Function arguments to lambda. Or when there are no guards.
 * Insert randomly generated definitions for distraction
 * Eta-expansion (`f` into `\x -> f x`).
 * Nice place for ideas: https://tigress.wtf/transformations.html
