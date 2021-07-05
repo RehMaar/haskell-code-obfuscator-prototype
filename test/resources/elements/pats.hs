@@ -31,4 +31,4 @@ pat12 ~(a, b) = 1
 -- Records
 patRecords R { r1 = x, r2 = y } = 1
 
-main = undefined
+main = putStrLn "build is ok"
