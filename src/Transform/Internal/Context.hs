@@ -30,6 +30,7 @@ import Data.Data
 import Control.Monad.State
 import System.Random
 import Data.Char
+import Debug.Trace
 
 
 data TransformContext
@@ -55,18 +56,62 @@ initTransformCommon symbols range seed si = let
 initTransform = initTransformCommon defaultSymbols defaultRange
   where
     defaultSymbols = ['A'..'Z'] ++ ['a'..'z']
-    defaultRange = (1, 10)
+    defaultRange = (1, 3)
 
 setSource :: ParsedSource -> Transform ()
 setSource src = do
   modify (\ctx -> ctx { tc_parsed_source = src })
 
-getNextFreshVar :: Transform String
-getNextFreshVar = do
+getSource :: Transform ParsedSource
+getSource = gets tc_parsed_source
+
+isUsed :: String -> Transform Bool
+isUsed name = do
+  used <- gets tc_used_symbols
+  return $ name `elem` used
+
+markUsed :: String -> Transform ()
+markUsed name =
+  modify (\ctx -> ctx { tc_used_symbols = name : tc_used_symbols ctx })
+
+getNextFreshVar = getNextFreshNameShort
+
+getNextFreshNameShort :: Transform String
+getNextFreshNameShort = do
+  used <- gets tc_used_symbols
+  let sorted = sortOn length used
+  symbols <- gets tc_symbols
+  let name = findShortest sorted symbols 1
+  markUsed name
+  pure name
+  where
+    findShortest used symbols n
+      | Just name <- findWithLen used symbols n
+      = name
+      | otherwise
+      = findShortest used symbols (succ n)
+
+    findWithLen used symbols n =
+      find (not . (`elem` used)) $
+        toLowerCase <$>
+          replicateM n symbols
+    toLowerCase (x:xs) = toLower x : xs
+
+-- TODO: generate fresh names based on the context,
+-- local variables in to different functions can have the same name
+getNextFreshVar' :: Transform String
+getNextFreshVar' = do
   name <- getNextFreshName
   case name of
-    (n:ns) -> return (toLower n : ns)
     []     -> error "getNextFreshVar: empty name"
+    (n:ns) -> do
+      let name' = (toLower n : ns)
+      flag <- isUsed name'
+      if flag
+      then getNextFreshVar
+      else do
+        markUsed name
+        return name'
 
 getNextFreshName :: Transform String
 getNextFreshName = do
@@ -75,14 +120,10 @@ getNextFreshName = do
    flag <- isUsed name
    if flag
    then getNextFreshName
-   else return name
+   else do
+     markUsed name
+     return name
   where
-    isUsed :: String -> Transform Bool
-    isUsed name = do
-      used <- gets tc_used_symbols
-      return $ name `elem` used
-
-
     getName :: Int -> Transform String
     getName 0 = return ""
     getName wordLen = do
@@ -94,7 +135,6 @@ getNextFreshName = do
       ctx <- get
       idx <- getInt (tc_range_symbols ctx)
       return $ tc_symbols ctx !! idx
-
 
     getWordLen :: Transform Int
     getWordLen = do
@@ -131,7 +171,10 @@ data SourceContext
    --  * Just [] -- nothing is exported
    --  * Just xs -- export only symbols in the list
   , sc_allow_rename_locals :: [Loc Var]
+  -- ^ Local variables that are defined in the source code
   , sc_allow_rename_globals :: [String]
+  -- ^ Top level names that are defined in the source code
+  , sc_imported_symbols :: [Loc Var]
   }
   deriving Show
 
@@ -170,13 +213,14 @@ initSourceContext (SourceInfo _ src rvs exports _) =
       decls     = collectDecls $ unLoc src
       exported  = collectExportedSym <$> exports
       decls'    = addQualifications' (namesToVars rvs) decls
-      (allow_rename_globals, allow_rename_locals) =
+      (allow_rename_globals, allow_rename_locals, imported_symbols) =
           collectAllowRename modName decls' exported
   in  SC { sc_module_name          = modName
          , sc_decls                = decls'
          , sc_exported             = exported
          , sc_allow_rename_locals  = allow_rename_locals
          , sc_allow_rename_globals = allow_rename_globals
+         , sc_imported_symbols     = imported_symbols
          }
 
 -- Add qual only to vars (inner decls aren't touched)
@@ -198,35 +242,32 @@ addQualifications' = map . addQual
   newQual _           NoQual = NoQual
   newQual _           q      = RQual $ getRealQual q
 
-collectAllowRename
-  :: String -> [Decl] -> Maybe [Exported] -> ([String], [Loc Var])
+-- collectAllowRename
+--   :: String -> [Decl] -> Maybe [Exported] -> ([String], [Loc Var])
 collectAllowRename modName decls exported =
   let topLevelToRename = allowRenameTopLevel modName decls exported
-      localsToRename   = allowRenameLocals modName decls topLevelToRename
-  in  (topLevelToRename, localsToRename)
+      (localsToRename, imported) = allowRenameLocals modName decls topLevelToRename
+  in (topLevelToRename, localsToRename, imported)
 
 funLocals FunD { fun_args = args, fun_vars = vars, fun_inner_decls = ds} =
   (fmap mkVarNoQual <$> args) ++ vars ++ concatMap funLocalsArgs ds
 funLocals _ = []
 funLocalsArgs FunD { fun_args = args, fun_inner_decls = ds } = (fmap mkVarNoQual <$> args) ++ concatMap funLocalsArgs ds
 
-
-
 -- allowRenameLocals :: String -> [Decl] -> Maybe [Exported] -> [Loc Var]
 allowRenameLocals modName decls topLevelToRename =
   let allVars     = concatMap funLocals decls
-      allowedVars = filter (allowToRenameVar modName topLevelToRename) allVars
-  in  allowedVars
+  in partition (allowToRenameVar modName topLevelToRename) allVars
  where
-  -- A simple variable is allowed to be renamed if:
-  -- * it's has no qualifier (TODO: handle it separately)
-  -- * it's qualifier == module name and it's in the `topLevelToRename` list
-  allowToRenameVar _  _ (Loc _ (Var _ NoQual)) = True
-  allowToRenameVar m tltr (Loc loc (Var var qual))
-    | sameQualMod m qual
-    , var `elem` tltr
-    = True
-  allowToRenameVar _ _ _ = False
+    -- A simple variable is allowed to be renamed if:
+    -- * it's has no qualifier (TODO: handle it separately)
+    -- * it's qualifier == module name and it's in the `topLevelToRename` list
+    allowToRenameVar _  _ (Loc _ (Var _ NoQual)) = True
+    allowToRenameVar m tltr (Loc loc (Var var qual))
+      | sameQualMod m qual
+      , var `elem` tltr
+      = True
+    allowToRenameVar _ _ _ = False
 
 -- | Collect top level symbols allowed to rename
 --
@@ -235,7 +276,7 @@ allowRenameTopLevel :: String -> [Decl] -> Maybe [Exported] -> [String]
 allowRenameTopLevel modName decls exps =
   let topLevelFun  = concatMap toplevelFun decls
       topLevelCtrs = concatMap toplevelCtrs decls
-  in  case exps of
+  in case exps of
         Nothing -> []
         Just exps ->
           filter (not . isExported exps) $ topLevelFun ++ topLevelCtrs

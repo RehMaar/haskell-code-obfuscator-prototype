@@ -155,7 +155,7 @@ renameImportedSymbols sc renamings src = let
     in src''
   where
     importedSymbols :: [Loc Var]
-    importedSymbols = filter ((\q -> isVarQualified q && getVarQual q /= sc_module_name sc) . lcelem) $ sc_allow_rename_locals sc
+    importedSymbols = sc_imported_symbols sc
 
     importedRenamings :: [(Loc Var, String)]
     importedRenamings = mapMaybe findImported renamings
@@ -177,7 +177,7 @@ renameImportedSymbols sc renamings src = let
 
     lookupIR _ [] = Nothing
     lookupIR n@(Loc loc var) ((Loc loc' var', newName):irs)
-      | loc == loc'
-      , varname var == varname var'
+      | -- loc == loc',
+        varname var == varname var'
       = Just newName
       | otherwise = lookupIR n irs

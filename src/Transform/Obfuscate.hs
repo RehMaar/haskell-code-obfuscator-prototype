@@ -53,7 +53,6 @@ import           Transform.Internal.Context
 import           Transform.Rename
 import           Transform.Desugar
 import           Transform.Literal
-import           Transform.Function
 
 import           Debug.Trace
 import System.Directory (makeAbsolute)
@@ -80,7 +79,8 @@ generateRenamings = do
   sc <- gets tc_source_ctx
   let globals = sc_allow_rename_globals sc
   let locals  = varname . lcelem <$> sc_allow_rename_locals sc
-  let rvs = unique $ sort $ globals ++ locals
+  let imported = varname . lcelem <$> sc_imported_symbols sc
+  let rvs = unique $ sort $ globals ++ locals ++ imported
   generateRenamings' rvs
   where
     generateRenamings' :: [String] -> Transform [(String, String)]
@@ -94,6 +94,7 @@ obfuscateNames :: Bool -> Transform ()
 obfuscateNames renameImports = do
   ctx <- get
   renamings <- generateRenamings
+  trace (show renamings) $ pure ()
   let src = tc_parsed_source ctx
   let src1 = rename (tc_source_ctx ctx) renamings src
   let src2 = renameImportedSymbols (tc_source_ctx ctx) renamings src1
@@ -106,6 +107,7 @@ obfuscateStrings = do
 obfuscateStructure :: Transform ()
 obfuscateStructure = do
   transformDoToLam
+  transformArgsToLam
   applyTransformation addParens
   applyTransformationCommon applyTopDown transformOpToApp
   applyTransformation transformIfCase
@@ -117,14 +119,14 @@ obfuscateWithSeed :: ApplyTrans -> Int -> SourceInfo -> ParsedSource
 obfuscateWithSeed ApplyTrans{..} = evalTransform obfuscate''
   where
     obfuscate'' = do
-      case changeNames of
-        RenameNone -> pure ()
-        RenameLocal -> obfuscateNames False
-        RenameAll -> obfuscateNames True
       when changeStrings $
         obfuscateStrings
       when changeStructure $
         obfuscateStructure
+      case changeNames of
+        RenameNone -> pure ()
+        RenameLocal -> obfuscateNames False
+        RenameAll -> obfuscateNames True
       gets tc_parsed_source
 
 obfuscateFileInProj
