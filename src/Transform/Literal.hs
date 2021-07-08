@@ -2,9 +2,11 @@
 module Transform.Literal where
 
 import           GHC
+import           BasicTypes
 import           Transform.Internal.Types
 import           Transform.Internal.Query
 import           Transform.Internal.Context
+import           Transform.Internal.Generate
 import           GHC.SourceGen                 as SG
 import           GHC.SourceGen.Binds           as SG
 import qualified FastString                    as GHC
@@ -13,6 +15,10 @@ import Data.String
 import Utils
 import Control.Monad.State
 import Data.Char
+import Control.Arrow
+import Data.List
+import qualified Data.Map.Strict as Map
+import Data.Maybe (fromMaybe)
 
 -- | Transform strings and chars.
 --
@@ -138,3 +144,93 @@ transformStringAndChars = do
     where
       decl = createDecl freeName "toEnum"
       sig = SG.typeSig (fromString freeName) (createVar "Int" SG.--> createVar "Char")
+
+--
+-- 1. First simple solution:
+--    123 -> (i.d.t)z
+--    z = 0; t = n + 3; d = n + 2*10; i = n + 100
+--
+--
+-- TODO: shuffle declarations
+transformIntegrals :: Transform ()
+transformIntegrals = do
+  src <- getSource
+  src <- evalStateT (do { src <- applyM transform src; addDigitsSigs; pure src}) Map.empty
+  setSource src
+  where
+    transform :: HsExpr' -> StateT (Map.Map Integer String) (State TransformContext) HsExpr'
+    transform (HsOverLit _ (OverLit { ol_val = HsIntegral IL {..}})) = do
+      let digits = numberToDigits il_value
+      names <- forM digits digitToFun
+      zeroName <- getZeroDecl
+      pure $ createComposition zeroName names
+    transform x = pure x
+
+    getZeroDecl :: StateT (Map.Map Integer String) (State TransformContext) String
+    getZeroDecl = do
+      mZeroDecl <- gets (Map.lookup 0)
+      case mZeroDecl of
+        Just d -> pure d
+        Nothing -> do
+          zeroName <- lift $ getNextFreshVar
+          let zeroDecl = createZeroDecl zeroName
+          lift $ addNewDecl zeroDecl
+          addDigitDecl 0 zeroName
+          pure zeroName
+
+    -- -- Add to map: Map Int {- Digit -} HsBind' {- Corresponding definition -}
+    -- Generate fun `i n r = n * 10 + d`, n -- a number, d -- digit
+    -- digitToFun :: Integer -> Transform (String, HsDecl')
+    digitToFun :: Integer -> StateT (Map.Map Integer String) (State TransformContext) String
+    digitToFun d = do
+      mZeroDecl <- gets (Map.lookup d)
+      case mZeroDecl of
+        Just d -> pure d
+        Nothing -> do
+          fun_name <- lift $ getNextFreshVar
+          arg_name <- lift $ getNextFreshVar -- getNextFreshLocalVar
+          let decl = createDigitFun fun_name arg_name d
+          lift $ addNewDecl decl
+          addDigitDecl d fun_name
+          pure fun_name
+
+    numberToDigits = unfoldr f where
+      f 0 = Nothing
+      f n = Just $ (snd &&& fst) $ divMod n 10
+
+    createDigitFun :: String -> String -> Integer -> HsDecl'
+    createDigitFun funName argName digit =
+      funBind (fromString funName) $ match [pvar_ argName] $
+        op (SG.int digit) "+" (op (var_ argName) "*" (op (SG.int 10))
+
+    createZeroDecl :: String -> HsDecl'
+    createZeroDecl funName =
+      funBind (fromString funName) $ match [] $ SG.int 0
+
+    createComposition :: String -> [String] -> HsExpr'
+    createComposition z [] = var_ z
+    createComposition z (d:ds) =
+     let num = foldl (\acc digit -> op acc  "." (var_ digit)) (var_ d) ds
+     in par (num SG.@@ var_ z)
+
+    addDigitDecl :: Integer -> String -> StateT (Map.Map Integer String) (State TransformContext) ()
+    addDigitDecl digit name = modify (Map.insert digit name)
+
+    addDigitsSigs :: StateT (Map.Map Integer String) (State TransformContext) ()
+    addDigitsSigs = do
+       mp <- get
+       let zeroName = fromMaybe (error "transforming integrals: no zero definition") $ mp Map.!? 0
+       let mp' = Map.delete 0 mp
+       let names = Map.elems mp'
+       let sigDecl = createSigDecl names
+       let zeroDecl = createZeroSigDecl zeroName
+       lift $ addNewDecl sigDecl
+       lift $ addNewDecl zeroDecl
+
+    createSigDecl :: [String] -> HsDecl'
+    createSigDecl names =
+      typeSigs (fromString <$> names) $ [var "Num" @@ var "a"] ==> var "a" --> var "a"
+
+    createZeroSigDecl :: String -> HsDecl'
+    createZeroSigDecl name =
+      typeSig (fromString name) $ [var "Num" @@ var "a"] ==> var "a"

@@ -106,12 +106,13 @@ obfuscateStrings = do
 
 obfuscateStructure :: Transform ()
 obfuscateStructure = do
-  transformDoToLam
-  transformArgsToLam
-  applyTransformation addParens
-  applyTransformationCommon applyTopDown transformOpToApp
-  applyTransformation transformIfCase
-  applyTransformation transformMultiArgLam
+  transformIntegrals
+  -- transformDoToLam
+  -- transformArgsToLam
+  -- applyTransformation addParens
+  -- applyTransformationCommon applyTopDown transformOpToApp
+  -- applyTransformation transformIfCase
+  -- applyTransformation transformMultiArgLam
 
 obfuscate = obfuscateWithSeed defaultApplyTrans 0
 

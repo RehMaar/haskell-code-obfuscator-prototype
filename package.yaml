@@ -39,6 +39,7 @@ default-extensions:
 - TypeFamilies
 - GADTs
 - OverloadedStrings
+- TupleSections
 
 library:
   source-dirs: src

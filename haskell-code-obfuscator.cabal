@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: ba66911b71ead3558d1bad06915d4141a897082a0eb934738f088f2d74e24819
+-- hash: f8e8dfe292fa43aa7b6a1b0e9dfbec306882fc5e11dfedfa27bfeccea0c81b96
 
 name:           haskell-code-obfuscator
 version:        0.1.0.0
@@ -43,7 +43,7 @@ library
       Paths_haskell_code_obfuscator
   hs-source-dirs:
       src
-  default-extensions: RecordWildCards TypeFamilies GADTs OverloadedStrings
+  default-extensions: RecordWildCards TypeFamilies GADTs OverloadedStrings TupleSections
   build-depends:
       base >=4.7 && <5
     , containers >=0.6
@@ -66,7 +66,7 @@ executable obfuscate-exe
       Paths_haskell_code_obfuscator
   hs-source-dirs:
       app
-  default-extensions: RecordWildCards TypeFamilies GADTs OverloadedStrings
+  default-extensions: RecordWildCards TypeFamilies GADTs OverloadedStrings TupleSections
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
@@ -94,7 +94,7 @@ test-suite haskell-code-obfuscator-test
       Paths_haskell_code_obfuscator
   hs-source-dirs:
       test
-  default-extensions: RecordWildCards TypeFamilies GADTs OverloadedStrings
+  default-extensions: RecordWildCards TypeFamilies GADTs OverloadedStrings TupleSections
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       HUnit

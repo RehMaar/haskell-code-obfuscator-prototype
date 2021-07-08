@@ -191,9 +191,6 @@ transformMultiArgLam x = x
 --   =>
 --   f = \xs -> case xs of { ... }
 --
--- Algo:
--- 1. Find patterns in all cases
--- 2. For each position create new varaible
 transformArgsToLam :: Transform ()
 transformArgsToLam = do
   src <- getSource
@@ -224,6 +221,7 @@ transformArgsToLam = do
       where
         -- [strings] -> [(pats, grhss)] ->
         body_ :: [String] -> [([LPat GhcPs], GRHSs GhcPs (LHsExpr GhcPs))] -> GRHSs GhcPs (LHsExpr GhcPs)
+        body_ [] [([], grhss)] = grhss
         body_ vars args = grhss__ [noLoc grhs]
           where
             -- case (x1, x2, ..) of { (pat1, pat2, ..) -> body }

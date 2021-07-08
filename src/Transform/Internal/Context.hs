@@ -31,6 +31,7 @@ import Control.Monad.State
 import System.Random
 import Data.Char
 import Debug.Trace
+import qualified GHC.SourceGen as SG
 
 
 data TransformContext
@@ -42,21 +43,34 @@ data TransformContext
   , tc_range_name_len :: (Int, Int)
   , tc_generator :: StdGen
   , tc_used_symbols :: [String]
+  , tc_new_decls :: [SG.HsDecl']
   }
 
 type Transform a = State TransformContext a
 
-evalTransform f seed = evalState f . initTransform seed
+evalTransform :: State TransformContext ParsedSource -> Int -> Source.SourceInfo -> ParsedSource
+evalTransform f seed = evalState (updateDecls =<< f) . initTransform seed
+
+updateDecls :: ParsedSource -> Transform ParsedSource
+updateDecls src = do
+  ds <- gets tc_new_decls
+  pure $ update ds <$> src
+  where
+    update ds (HsModule n e i ds' x y) = HsModule n e i (ds' ++ fmap noLoc ds) x y
 
 -- TODO: fill used symbols with already used in source code
 initTransformCommon symbols range seed si = let
     sctx = initSourceContext si
-  in TC sctx (si_parsed_source si) symbols (0, pred $ length symbols) range (mkStdGen seed) []
+  in TC sctx (si_parsed_source si) symbols (0, pred $ length symbols) range (mkStdGen seed) [] []
 
 initTransform = initTransformCommon defaultSymbols defaultRange
   where
     defaultSymbols = ['A'..'Z'] ++ ['a'..'z']
     defaultRange = (1, 3)
+
+addNewDecl :: SG.HsDecl' -> Transform ()
+addNewDecl decl =
+  modify (\ctx -> ctx { tc_new_decls = decl : tc_new_decls ctx })
 
 setSource :: ParsedSource -> Transform ()
 setSource src = do

@@ -11,6 +11,9 @@ import Utils
 var_ :: String -> HsExpr GhcPs
 var_ = var . fromString
 
+pvar_ :: String -> Pat GhcPs
+pvar_ = bvar . fromString
+
 funBind_ name pats grhss
   = FunBind
   { fun_ext = noExt
